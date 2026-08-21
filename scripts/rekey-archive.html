@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gobsmacked 档案换钥</title>
+  <style>
+    :root{color-scheme:dark;font-family:"Microsoft YaHei UI",sans-serif;background:#03060a;color:#e9f3f8}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 70% 20%,#102534 0,transparent 38%),#03060a}
+    main{width:min(540px,calc(100vw - 48px));padding:42px;border:1px solid #223845;border-radius:22px;background:rgba(3,8,12,.94);box-shadow:0 26px 80px #000}
+    small{color:#67d5f2;letter-spacing:.2em} h1{font:400 30px Georgia,"Microsoft YaHei UI";margin:12px 0 32px}
+    label{display:block;color:#a9bac4;margin-bottom:10px} input{width:100%;height:56px;border:1px solid #294654;border-radius:13px;background:#050b10;color:#fff;padding:0 16px;font-size:18px;outline:none}
+    input:focus{border-color:#69d8f6;box-shadow:0 0 0 3px #69d8f622} button{width:100%;height:56px;margin-top:18px;border:0;border-radius:13px;background:#77d9f4;color:#031018;font-size:17px;font-weight:700;cursor:pointer}
+    button:disabled{opacity:.42;cursor:default}.progress{margin-top:28px;display:none}.track{height:3px;background:#15242d;overflow:hidden}.bar{height:100%;width:0;background:#72d9f6;transition:width .25s}
+    .line{display:flex;justify-content:space-between;margin-top:12px;color:#8fa4af;font-size:13px}.message{min-height:22px;margin-top:18px;color:#a9bac4}.error{color:#ff9b9b}.done{color:#8ce7bf}
+  </style>
+</head>
+<body><main>
+  <small>GOBSMACKED</small><h1>档案换钥</h1>
+  <label for="secret">历史密匙</label><input id="secret" type="password" autocomplete="off" autofocus>
+  <button id="start">开始</button>
+  <section class="progress" id="progress"><div class="track"><div class="bar" id="bar"></div></div><div class="line"><span id="stage">准备</span><span id="percent">0%</span></div></section>
+  <div class="message" id="message"></div>
+</main><script>
+  const input=document.querySelector('#secret'),button=document.querySelector('#start'),progress=document.querySelector('#progress'),bar=document.querySelector('#bar'),stage=document.querySelector('#stage'),percent=document.querySelector('#percent'),message=document.querySelector('#message');
+  const labels={prepare:'读取档案',rekey:'重新加密',verify:'完整性验证',swap:'替换密文仓库',done:'完成'};
+  window.rekey.onProgress((value)=>{progress.style.display='block';bar.style.width=`${value.percent||0}%`;percent.textContent=`${(value.percent||0).toFixed(1)}%`;stage.textContent=labels[value.stage]||value.stage;if(value.detail)message.textContent=value.detail});
+  async function start(){const secret=input.value;if(secret.length<4){message.textContent='请输入历史密匙';message.className='message error';return}button.disabled=true;input.disabled=true;input.value='';progress.style.display='block';message.textContent='请保持程序运行';message.className='message';try{const result=await window.rekey.start(secret);bar.style.width='100%';percent.textContent='100%';stage.textContent='完成';message.textContent=result.already?'档案已使用新密钥':'换钥完成，旧密钥已删除';message.className='message done'}catch(error){button.disabled=false;input.disabled=false;input.focus();message.textContent=error.message||String(error);message.className='message error'}}
+  button.addEventListener('click',start);input.addEventListener('keydown',(event)=>{if(event.key==='Enter')start()});
+</script></body></html>

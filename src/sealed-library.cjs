@@ -100,7 +100,8 @@ async function saveManifest(root, key, manifest) {
     schema: 'cn.dxr.gobsmacked-sealed-library-info',
     version: 1,
     encryption: 'AES-256-GCM',
-    keyProtection: 'Windows user account',
+    keyProtection: normalized.keyProtection || 'windows-user-dpapi-v1',
+    ...(normalized.kdf ? { kdf: normalized.kdf } : {}),
     files: files.length,
     directories: normalized.entries.filter((entry) => entry.type === 'directory').length,
     bytes: files.reduce((sum, entry) => sum + Number(entry.size || 0), 0),
@@ -108,6 +109,69 @@ async function saveManifest(root, key, manifest) {
   };
   await atomicBuffer(path.join(root, 'archive.info'), Buffer.from(`${JSON.stringify(publicInfo, null, 2)}\n`, 'utf8'));
   return normalized;
+}
+
+async function rekeyObject(sourceRoot, destinationRoot, objectId, oldKey, newKey, expected = {}) {
+  assertKey(oldKey); assertKey(newKey);
+  if (!/^[a-f0-9]{64}\.gse$/.test(String(objectId))) throw new Error('密文对象编号无效');
+  if (!/^[a-f0-9]{64}$/.test(String(expected.sha256)) || !Number.isFinite(expected.size)) {
+    throw new Error('换钥清单缺少完整性信息');
+  }
+  const newObjectId = `${crypto.createHmac('sha256', newKey).update(expected.sha256).digest('hex')}.gse`;
+  const destinationObjects = path.join(destinationRoot, 'objects');
+  const destination = path.join(destinationObjects, newObjectId);
+  await fsp.mkdir(destinationObjects, { recursive: true });
+  if (fs.existsSync(destination)) {
+    await decryptObject(destinationRoot, newObjectId, null, newKey, expected);
+    return { objectId: newObjectId, sha256: expected.sha256, size: expected.size, resumed: true };
+  }
+
+  const source = path.join(sourceRoot, 'objects', objectId);
+  const stat = await fsp.stat(source);
+  if (stat.size < HEADER_BYTES + TAG_BYTES) throw new Error('密文对象已损坏');
+  const handle = await fsp.open(source, 'r');
+  const header = Buffer.alloc(HEADER_BYTES); const tag = Buffer.alloc(TAG_BYTES);
+  await handle.read(header, 0, header.length, 0);
+  await handle.read(tag, 0, tag.length, stat.size - TAG_BYTES);
+  await handle.close();
+  if (!header.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('密文对象格式无效');
+
+  const oldDecipher = crypto.createDecipheriv('aes-256-gcm', oldKey, header.subarray(MAGIC.length));
+  oldDecipher.setAAD(OBJECT_AAD); oldDecipher.setAuthTag(tag);
+  const newNonce = crypto.randomBytes(NONCE_BYTES);
+  const newCipher = crypto.createCipheriv('aes-256-gcm', newKey, newNonce);
+  newCipher.setAAD(OBJECT_AAD);
+  const hash = crypto.createHash('sha256'); let size = 0;
+  const meter = new Transform({ transform(chunk, _encoding, callback) { hash.update(chunk); size += chunk.length; callback(null, chunk); } });
+  const temporary = path.join(destinationObjects, `.pending-${crypto.randomUUID()}`);
+  let output;
+  try {
+    output = await fsp.open(temporary, 'wx');
+    await writeAll(output, Buffer.concat([MAGIC, newNonce]));
+    await output.close(); output = null;
+    const ciphertextBytes = stat.size - HEADER_BYTES - TAG_BYTES;
+    if (ciphertextBytes === 0) {
+      const plainFinal = oldDecipher.final();
+      if (plainFinal.length) { hash.update(plainFinal); size += plainFinal.length; }
+      const encrypted = Buffer.concat([newCipher.update(plainFinal), newCipher.final(), newCipher.getAuthTag()]);
+      await fsp.appendFile(temporary, encrypted);
+    } else {
+      await pipeline(
+        fs.createReadStream(source, { start: HEADER_BYTES, end: stat.size - TAG_BYTES - 1 }),
+        oldDecipher, meter, newCipher,
+        fs.createWriteStream(temporary, { flags: 'a' })
+      );
+      await fsp.appendFile(temporary, newCipher.getAuthTag());
+    }
+    const sha256 = hash.digest('hex');
+    if (sha256 !== expected.sha256 || size !== expected.size) throw new Error('换钥后完整性校验失败');
+    await fsp.rename(temporary, destination);
+    return { objectId: newObjectId, sha256, size, resumed: false };
+  } catch (error) {
+    await output?.close().catch(() => undefined);
+    await fsp.rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function encryptFile(source, root, key) {
@@ -211,5 +275,5 @@ function listChildren(manifest, relative = '', query = '') {
 
 module.exports = {
   blankManifest, normalizeVirtualPath, loadManifest, saveManifest,
-  encryptFile, decryptObject, manifestSummary, listChildren
+  encryptFile, decryptObject, rekeyObject, manifestSummary, listChildren
 };

@@ -17,6 +17,7 @@ const {
   normalizeVirtualPath, loadManifest, saveManifest, encryptFile, decryptObject,
   manifestSummary, listChildren
 } = require('./sealed-library.cjs');
+const { deriveArchiveKey, usesHistoryPassphrase } = require('./archive-key.cjs');
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'gob-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
@@ -127,6 +128,8 @@ function assertExternalTransferPath(source) {
 
 async function getArchiveKey() {
   if (archiveKey) return archiveKey;
+  const info = await jsonRead(path.join(libraryRoot, 'archive.info'), null);
+  if (usesHistoryPassphrase(info)) throw new Error('请重新验证历史密钥');
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows 账户保护当前不可用');
   if (fs.existsSync(archiveKeyFile)) {
     const encoded = safeStorage.decryptString(await fsp.readFile(archiveKeyFile));
@@ -142,6 +145,20 @@ async function getArchiveKey() {
   await fsp.rename(temporary, archiveKeyFile);
   archiveKey = key;
   return archiveKey;
+}
+
+async function unlockArchiveKeyFromSecret(secret, config) {
+  const info = await jsonRead(path.join(libraryRoot, 'archive.info'), null);
+  if (!usesHistoryPassphrase(info)) return;
+  const key = deriveArchiveKey(secret, config.innerSalt);
+  try {
+    await loadManifest(libraryRoot, key);
+    lockArchiveKey();
+    archiveKey = key;
+  } catch (error) {
+    key.fill(0);
+    throw error;
+  }
 }
 
 function lockArchiveKey() {
@@ -305,7 +322,10 @@ function registerIpc() {
     if (ok) {
       failedAuthCount = 0; nextAuthAt = 0;
       if (purpose === 'main') mainUnlocked = true;
-      if (purpose === 'inner') innerUnlocked = true;
+      if (purpose === 'inner') {
+        await unlockArchiveKeyFromSecret(secret, config);
+        innerUnlocked = true;
+      }
     } else {
       failedAuthCount += 1;
       nextAuthAt = Date.now() + Math.min(5000, Math.max(350, 250 * (2 ** Math.min(failedAuthCount, 5))));

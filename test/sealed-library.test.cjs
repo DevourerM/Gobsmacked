@@ -5,9 +5,10 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const {
-  blankManifest, loadManifest, saveManifest, encryptFile, decryptObject,
+  blankManifest, loadManifest, saveManifest, encryptFile, decryptObject, rekeyObject,
   manifestSummary, listChildren
 } = require('../src/sealed-library.cjs');
+const { ARCHIVE_KEY_MODE, ARCHIVE_KEY_CONTEXT, deriveArchiveKey } = require('../src/archive-key.cjs');
 
 test('封存资料使用密文对象并可完整解密', async (context) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gobsmacked-seal-'));
@@ -52,4 +53,31 @@ test('封存与校验兼容空文件', async (context) => {
   assert.equal(encrypted.size, 0);
   await decryptObject(path.join(root, 'archive'), encrypted.objectId, restored, key, encrypted);
   assert.equal((await fs.stat(restored)).size, 0);
+});
+
+test('历史密匙与固定地理上下文派生 256 位档案密钥', () => {
+  const key = deriveArchiveKey('示例历史密匙', 'a'.repeat(48));
+  assert.equal(key.length, 32);
+  assert.equal(ARCHIVE_KEY_CONTEXT, '中国河南省焦作市|LAT=35.25|LON=113.23|0722');
+  key.fill(0);
+});
+
+test('换钥过程不落盘明文并可以新密钥复原', async (context) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gobsmacked-rekey-'));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const oldRoot = path.join(root, 'old'); const nextRoot = path.join(root, 'next');
+  const source = path.join(root, 'source.bin'); const restored = path.join(root, 'restored.bin');
+  const oldKey = crypto.randomBytes(32); const newKey = crypto.randomBytes(32);
+  await fs.writeFile(source, crypto.randomBytes(1024 * 128 + 7));
+  const oldEntry = await encryptFile(source, oldRoot, oldKey);
+  const nextEntry = await rekeyObject(oldRoot, nextRoot, oldEntry.objectId, oldKey, newKey, oldEntry);
+  assert.notEqual(nextEntry.objectId, oldEntry.objectId);
+  await decryptObject(nextRoot, nextEntry.objectId, restored, newKey, nextEntry);
+  assert.deepEqual(await fs.readFile(restored), await fs.readFile(source));
+  const manifest = blankManifest();
+  manifest.keyProtection = ARCHIVE_KEY_MODE;
+  manifest.entries = [{ path: 'sample.bin', type: 'file', ...nextEntry }];
+  await saveManifest(nextRoot, newKey, manifest);
+  const info = JSON.parse(await fs.readFile(path.join(nextRoot, 'archive.info'), 'utf8'));
+  assert.equal(info.keyProtection, ARCHIVE_KEY_MODE);
 });
