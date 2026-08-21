@@ -1,0 +1,40 @@
+{
+  "name": "gobsmacked",
+  "version": "0.1.0",
+  "description": "Gobsmacked：个人记录与查阅系统",
+  "main": "src/main.cjs",
+  "author": "dxr",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "import:diary": "node scripts/import-diary.cjs",
+    "seal:library": "electron --disable-gpu --disable-gpu-compositing --disable-software-rasterizer scripts/seal-library.cjs",
+    "verify:sealed-library": "electron --disable-gpu --disable-gpu-compositing --disable-software-rasterizer scripts/verify-sealed-library.cjs",
+    "pack": "node scripts/package-folder.cjs"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  },
+  "build": {
+    "appId": "cn.dxr.gobsmacked",
+    "productName": "Gobsmacked",
+    "asar": true,
+    "directories": {
+      "output": ".gobsmacked-build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {}
+  }
+}
