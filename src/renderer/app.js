@@ -1062,9 +1062,38 @@ function setupCosmos() {
 }
 
 let historyTimer;
+let chronologySuppressClickUntil = 0;
+let chronologyTweenFrame = 0;
+let chronologyTweenActive = false;
+let chronologySettleTimer;
+
+function stopChronologyTween() {
+  if (chronologyTweenFrame) cancelAnimationFrame(chronologyTweenFrame);
+  chronologyTweenFrame = 0; chronologyTweenActive = false;
+}
+
+function centerChronologyMarker(marker, animated = true) {
+  const container = $('#chronology');
+  clearTimeout(chronologySettleTimer);
+  const target = Math.round(Math.max(0, Math.min(container.scrollHeight - container.clientHeight, marker.y - container.clientHeight / 2)));
+  const start = container.scrollTop; const distance = target - start;
+  stopChronologyTween();
+  if (!animated || Math.abs(distance) < 3) { container.scrollTop = target; return; }
+  chronologyTweenActive = true;
+  const startedAt = performance.now(); const duration = Math.min(440, Math.max(190, Math.abs(distance) * .55));
+  const step = (now) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - (1 - progress) ** 3;
+    container.scrollTop = start + distance * eased;
+    if (progress < 1) chronologyTweenFrame = requestAnimationFrame(step);
+    else { chronologyTweenFrame = 0; chronologyTweenActive = false; container.scrollTop = target; }
+  };
+  chronologyTweenFrame = requestAnimationFrame(step);
+}
 
 async function configureTimeline() {
   state.historyIndex = await api.recordIndex();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   renderChronology();
   const lastDay = state.historyIndex.days.at(-1);
   const lastYear = state.historyIndex.years.at(-1);
@@ -1073,6 +1102,7 @@ async function configureTimeline() {
 }
 
 function renderChronology() {
+  stopChronologyTween();
   const container = $('#chronology');
   const track = $('#chronology-track');
   const ticks = $('#timeline-ticks');
@@ -1081,7 +1111,7 @@ function renderChronology() {
   const minYear = dataYears.length ? Math.min(...dataYears) : currentYear;
   const maxYear = Math.max(currentYear, ...(dataYears.length ? dataYears : [currentYear]));
   const viewportHeight = Math.max(1, container.clientHeight - 2);
-  const edge = Math.max(70, viewportHeight * .42);
+  const edge = Math.max(70, viewportHeight / 2);
   ticks.replaceChildren();
   const markers = [];
   const daysByYear = new Map();
@@ -1093,7 +1123,7 @@ function renderChronology() {
   daysByYear.forEach((keys) => keys.sort());
   let cursorY = edge;
   const dayOffset = 76;
-  const dayStep = 28;
+  const dayStep = 42;
   const yearTail = 96;
   const emptyYearGap = 168;
 
@@ -1102,7 +1132,7 @@ function renderChronology() {
     const marker = document.createElement('button');
     marker.type = 'button'; marker.className = 'timeline-tick major'; marker.style.top = `${y}px`; marker.dataset.kind = 'year'; marker.dataset.key = String(year);
     const line = document.createElement('i'); const label = document.createElement('span'); label.textContent = String(year);
-    marker.append(line, label); marker.addEventListener('click', () => selectTimeline('year', String(year)));
+    marker.append(line, label); marker.addEventListener('click', () => { if (performance.now() >= chronologySuppressClickUntil) selectTimeline('year', String(year), true); });
     ticks.append(marker); markers.push({ kind: 'year', key: String(year), y });
     const yearDays = daysByYear.get(year) || [];
     let previousMonth = -1;
@@ -1115,17 +1145,17 @@ function renderChronology() {
       const dayMarker = document.createElement('button');
       dayMarker.type = 'button'; dayMarker.className = `timeline-tick minor${monthStart ? ' month-start' : ''}${fifth ? ' fifth' : ''}`; dayMarker.style.top = `${dayY}px`; dayMarker.dataset.kind = 'day'; dayMarker.dataset.key = key; dayMarker.title = displayDate(key);
       dayMarker.dataset.shortLabel = `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
-      dayMarker.dataset.monthLabel = state.language === 'zh' ? `${date.getMonth() + 1}月` : date.toLocaleString('en', { month: 'short' }).toUpperCase();
-      dayMarker.append(document.createElement('i')); dayMarker.addEventListener('click', () => selectTimeline('day', key));
+      dayMarker.append(document.createElement('i')); dayMarker.addEventListener('click', () => { if (performance.now() >= chronologySuppressClickUntil) selectTimeline('day', key, true); });
       ticks.append(dayMarker); markers.push({ kind: 'day', key, y: dayY });
     });
     cursorY += yearDays.length ? dayOffset + Math.max(0, yearDays.length - 1) * dayStep + yearTail : emptyYearGap;
   }
 
-  const height = Math.max(viewportHeight, cursorY + edge);
+  const lastMarkerY = markers.at(-1)?.y ?? edge;
+  const height = Math.max(viewportHeight, lastMarkerY + edge);
   track.style.height = `${height}px`;
   track.style.setProperty('--rail-top', `${edge}px`);
-  track.style.setProperty('--rail-bottom', `${Math.max(edge, height - cursorY + 1)}px`);
+  track.style.setProperty('--rail-bottom', `${edge}px`);
 
   state.timelineMarkers = markers.sort((a, b) => a.y - b.y || (a.kind === 'year' ? -1 : 1));
   $('#day-scale-legend').classList.toggle('hidden', state.historyIndex.days.length === 0);
@@ -1133,12 +1163,23 @@ function renderChronology() {
   if (state.timelineSelection) updateTimelineCursor(false);
 }
 
-function selectNearestTimelineMarker(clientY) {
+function nearestTimelineMarkerAtCenter() {
   if (!state.timelineMarkers?.length) return;
-  const container = $('#chronology'); const bounds = container.getBoundingClientRect();
-  const contentY = clientY - bounds.top + container.scrollTop;
-  const nearest = state.timelineMarkers.reduce((best, marker) => Math.abs(marker.y - contentY) < Math.abs(best.y - contentY) ? marker : best);
-  selectTimeline(nearest.kind, nearest.key);
+  const container = $('#chronology');
+  const contentY = container.scrollTop + container.clientHeight / 2;
+  return state.timelineMarkers.reduce((best, marker) => Math.abs(marker.y - contentY) < Math.abs(best.y - contentY) ? marker : best);
+}
+
+function selectNearestTimelineMarker(load = true) {
+  const nearest = nearestTimelineMarkerAtCenter();
+  if (!nearest) return;
+  const unchanged = state.timelineSelection?.kind === nearest.kind && state.timelineSelection?.key === nearest.key;
+  state.timelineSelection = { kind: nearest.kind, key: nearest.key };
+  $('#timeline-date').textContent = nearest.kind === 'year' ? nearest.key : nearest.key.replaceAll('-', '.');
+  updateTimelineCursor(false);
+  if (!load || unchanged) return;
+  clearTimeout(historyTimer);
+  historyTimer = setTimeout(() => loadHistoryRecord(nearest.kind, nearest.key), 140);
 }
 
 function selectTimeline(kind, key, center = false) {
@@ -1153,9 +1194,8 @@ function updateTimelineCursor(center) {
   const selection = state.timelineSelection;
   const marker = state.timelineMarkers?.find((item) => item.kind === selection?.kind && item.key === selection?.key);
   if (!marker) return;
-  $('#timeline-cursor').style.top = `${marker.y}px`;
   $$('.timeline-tick').forEach((node) => node.classList.toggle('active', node.dataset.kind === selection.kind && node.dataset.key === selection.key));
-  if (center) $('#chronology').scrollTo({ top: Math.max(0, marker.y - $('#chronology').clientHeight / 2), behavior: 'smooth' });
+  if (center) centerChronologyMarker(marker, true);
 }
 
 async function loadHistoryRecord(kind, key) {
@@ -1275,6 +1315,7 @@ function showHistory() {
 }
 function hideHistory() {
   if (state.exportBusy) { toast(state.language === 'zh' ? '导出进行中' : 'Export in progress'); return; }
+  stopChronologyTween(); clearTimeout(chronologySettleTimer);
   $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); state.historyUnlocked = false; api.lockInner();
 }
 
@@ -1413,11 +1454,39 @@ function bindEvents() {
   $('#close-history').addEventListener('click', hideHistory);
   $('#archive-records-mode').addEventListener('click', () => setArchiveMode('records'));
   $('#archive-library-mode').addEventListener('click', () => setArchiveMode('library'));
-  let chronologyDragging = false;
-  $('#chronology').addEventListener('pointerdown', (event) => { chronologyDragging = true; $('#chronology').setPointerCapture(event.pointerId); selectNearestTimelineMarker(event.clientY); });
-  $('#chronology').addEventListener('pointermove', (event) => { if (chronologyDragging) selectNearestTimelineMarker(event.clientY); });
-  $('#chronology').addEventListener('pointerup', () => { chronologyDragging = false; });
-  $('#chronology').addEventListener('pointercancel', () => { chronologyDragging = false; });
+  let chronologyDrag = null;
+  const settleChronology = () => {
+    const nearest = nearestTimelineMarkerAtCenter();
+    if (nearest) selectTimeline(nearest.kind, nearest.key, true);
+  };
+  $('#chronology').addEventListener('scroll', () => {
+    if (chronologyTweenActive) return;
+    selectNearestTimelineMarker(true);
+    clearTimeout(chronologySettleTimer); chronologySettleTimer = setTimeout(settleChronology, 130);
+  }, { passive: true });
+  $('#chronology').addEventListener('wheel', stopChronologyTween, { passive: true });
+  $('#chronology').addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    stopChronologyTween();
+    chronologyDrag = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: $('#chronology').scrollTop, moved: false };
+    $('#chronology').setPointerCapture(event.pointerId); $('#chronology').classList.add('is-dragging');
+  });
+  $('#chronology').addEventListener('pointermove', (event) => {
+    if (!chronologyDrag || chronologyDrag.pointerId !== event.pointerId) return;
+    const delta = event.clientY - chronologyDrag.startY;
+    if (Math.abs(delta) > 3) chronologyDrag.moved = true;
+    if (!chronologyDrag.moved) return;
+    $('#chronology').scrollTop = chronologyDrag.startScrollTop - delta;
+    event.preventDefault();
+  });
+  const finishChronologyDrag = (event) => {
+    if (!chronologyDrag || (event.pointerId !== undefined && chronologyDrag.pointerId !== event.pointerId)) return;
+    const moved = chronologyDrag.moved; chronologyDrag = null; $('#chronology').classList.remove('is-dragging');
+    if (moved) chronologySuppressClickUntil = performance.now() + 260;
+    settleChronology();
+  };
+  $('#chronology').addEventListener('pointerup', finishChronologyDrag);
+  $('#chronology').addEventListener('pointercancel', finishChronologyDrag);
   $('#chronology').addEventListener('keydown', (event) => {
     if (!['ArrowUp','ArrowDown'].includes(event.key) || !state.timelineMarkers?.length) return;
     event.preventDefault(); const current = state.timelineMarkers.findIndex((marker) => marker.kind === state.timelineSelection?.kind && marker.key === state.timelineSelection?.key);
