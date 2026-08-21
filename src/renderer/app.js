@@ -949,7 +949,7 @@ function seededRandom(initialSeed) {
   };
 }
 
-function createCosmosPainter(canvas, { seed, density, nebulaStrength }) {
+function createCosmosPainter(canvas, { seed, density, nebulaStrength, fps = 30 }) {
   const ctx = canvas.getContext('2d');
   let stars = []; let background = null; let width = 0; let height = 0; let lastPaintAt = -Infinity; let wasActive = false; let resizeTimer;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1044,7 +1044,7 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength }) {
   function isActive() {
     if (document.hidden) return false;
     const historyOpen = !$('#history').classList.contains('hidden');
-    if (canvas.id === 'history-cosmos') return historyOpen;
+    if (canvas.id === 'history-cosmos') return historyOpen && !document.body.classList.contains('timeline-dragging') && !document.body.classList.contains('timeline-scrolling');
     if (canvas.id === 'sky-cosmos') return !historyOpen && (state.skyRevealed || document.body.classList.contains('sky-dragging'));
     return !historyOpen && !state.skyRevealed && !document.body.classList.contains('sky-dragging');
   }
@@ -1052,7 +1052,7 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength }) {
     requestAnimationFrame(paint);
     if (!isActive()) { wasActive = false; return; }
     if (!wasActive) { wasActive = true; lastPaintAt = -Infinity; }
-    if ((reducedMotion && Number.isFinite(lastPaintAt)) || time - lastPaintAt < 33) return;
+    if ((reducedMotion && Number.isFinite(lastPaintAt)) || time - lastPaintAt < 1000 / fps) return;
     lastPaintAt = time;
     ctx.clearRect(0,0,width,height); if (background) ctx.drawImage(background,0,0,width,height);
     stars.forEach((star) => {
@@ -1072,8 +1072,8 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength }) {
 }
 
 function setupCosmos() {
-  createCosmosPainter($('#starfield'), { seed: 731994, density: 2650, nebulaStrength: .48 });
-  createCosmosPainter($('#history-cosmos'), { seed: 810163, density: 2850, nebulaStrength: .36 });
+  createCosmosPainter($('#starfield'), { seed: 731994, density: 2650, nebulaStrength: .48, fps: 24 });
+  createCosmosPainter($('#history-cosmos'), { seed: 810163, density: 2850, nebulaStrength: .36, fps: 12 });
   createCosmosPainter($('#sky-cosmos'), { seed: 120819, density: 920, nebulaStrength: 2.7 });
 }
 
@@ -1089,7 +1089,7 @@ let chronologyIgnoreScrollUntil = 0;
 
 function stopChronologyTween() {
   if (chronologyTweenFrame) cancelAnimationFrame(chronologyTweenFrame);
-  chronologyTweenFrame = 0; chronologyTweenActive = false; chronologyIgnoreScrollUntil = 0;
+  chronologyTweenFrame = 0; chronologyTweenActive = false; chronologyIgnoreScrollUntil = 0; document.body.classList.remove('timeline-scrolling');
 }
 
 function centerChronologyMarker(marker, animated = true) {
@@ -1100,6 +1100,7 @@ function centerChronologyMarker(marker, animated = true) {
   stopChronologyTween();
   if (!animated) { container.scrollTop = target; return; }
   if (Math.abs(distance) < 3) return;
+  document.body.classList.add('timeline-scrolling');
   chronologyTweenActive = true;
   const startedAt = performance.now(); const duration = Math.min(440, Math.max(190, Math.abs(distance) * .55));
   const step = (now) => {
@@ -1107,7 +1108,7 @@ function centerChronologyMarker(marker, animated = true) {
     const eased = 1 - (1 - progress) ** 3;
     container.scrollTop = start + distance * eased;
     if (progress < 1) chronologyTweenFrame = requestAnimationFrame(step);
-    else { chronologyTweenFrame = 0; chronologyIgnoreScrollUntil = performance.now() + 300; container.scrollTop = target; chronologyTweenActive = false; }
+    else { chronologyTweenFrame = 0; chronologyIgnoreScrollUntil = performance.now() + 300; container.scrollTop = target; chronologyTweenActive = false; document.body.classList.remove('timeline-scrolling'); }
   };
   chronologyTweenFrame = requestAnimationFrame(step);
 }
@@ -1200,9 +1201,9 @@ function nearestTimelineMarkerAtCenter() {
   return Math.abs(before.y - contentY) <= Math.abs(after.y - contentY) ? before : after;
 }
 
-function selectNearestTimelineMarker() {
-  const nearest = nearestTimelineMarkerAtCenter();
+function selectNearestTimelineMarker(nearest = nearestTimelineMarkerAtCenter()) {
   if (!nearest) return;
+  if (state.timelineSelection?.kind === nearest.kind && state.timelineSelection?.key === nearest.key) return nearest;
   state.timelineSelection = { kind: nearest.kind, key: nearest.key };
   $('#timeline-date').textContent = nearest.kind === 'year' ? nearest.key : nearest.key.replaceAll('-', '.');
   updateTimelineCursor(false);
@@ -1350,7 +1351,7 @@ function showHistory() {
 }
 function hideHistory() {
   if (state.exportBusy) { toast(state.language === 'zh' ? '导出进行中' : 'Export in progress'); return; }
-  stopChronologyTween(); clearTimeout(chronologySettleTimer); clearTimeout(historyTimer); historyScheduledSelection = ''; historyLoadSerial += 1;
+  stopChronologyTween(); clearTimeout(chronologySettleTimer); clearTimeout(historyTimer); historyScheduledSelection = ''; historyLoadSerial += 1; document.body.classList.remove('timeline-dragging','timeline-scrolling');
   $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); state.historyUnlocked = false; api.lockInner();
 }
 
@@ -1490,6 +1491,7 @@ function bindEvents() {
   $('#archive-records-mode').addEventListener('click', () => setArchiveMode('records'));
   $('#archive-library-mode').addEventListener('click', () => setArchiveMode('library'));
   let chronologyDrag = null;
+  let chronologyDragFrame = 0;
   const settleChronology = () => {
     if (chronologyDrag) return;
     const nearest = nearestTimelineMarkerAtCenter();
@@ -1497,33 +1499,42 @@ function bindEvents() {
   };
   $('#chronology').addEventListener('scroll', () => {
     if (chronologyTweenActive || performance.now() < chronologyIgnoreScrollUntil) return;
+    document.body.classList.add('timeline-scrolling');
     const nearest = nearestTimelineMarkerAtCenter();
     if (!nearest) return;
     const contentY = $('#chronology').scrollTop + $('#chronology').clientHeight / 2;
     const selectionId = `${nearest.kind}:${nearest.key}`;
     const alreadyOwned = Math.abs(nearest.y - contentY) < 3 && (historyScheduledSelection === selectionId || historyLoadedSelection === selectionId);
-    if (alreadyOwned) { selectNearestTimelineMarker(); return; }
-    clearTimeout(historyTimer); historyScheduledSelection = ''; selectNearestTimelineMarker();
-    if (!chronologyDrag) { clearTimeout(chronologySettleTimer); chronologySettleTimer = setTimeout(settleChronology, 220); }
+    if (alreadyOwned) { selectNearestTimelineMarker(nearest); document.body.classList.remove('timeline-scrolling'); return; }
+    clearTimeout(historyTimer); historyScheduledSelection = ''; selectNearestTimelineMarker(nearest);
+    if (!chronologyDrag) {
+      clearTimeout(chronologySettleTimer); chronologySettleTimer = setTimeout(() => { document.body.classList.remove('timeline-scrolling'); settleChronology(); }, 220);
+    }
   }, { passive: true });
   $('#chronology').addEventListener('wheel', stopChronologyTween, { passive: true });
   $('#chronology').addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
     stopChronologyTween(); clearTimeout(historyTimer); historyScheduledSelection = ''; clearTimeout(chronologySettleTimer);
     chronologyDrag = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: $('#chronology').scrollTop, moved: false };
-    $('#chronology').setPointerCapture(event.pointerId); $('#chronology').classList.add('is-dragging');
+    $('#chronology').setPointerCapture(event.pointerId); $('#chronology').classList.add('is-dragging'); document.body.classList.add('timeline-dragging','timeline-scrolling');
   });
   $('#chronology').addEventListener('pointermove', (event) => {
     if (!chronologyDrag || chronologyDrag.pointerId !== event.pointerId) return;
     const delta = event.clientY - chronologyDrag.startY;
     if (Math.abs(delta) > 3) chronologyDrag.moved = true;
     if (!chronologyDrag.moved) return;
-    $('#chronology').scrollTop = chronologyDrag.startScrollTop - delta;
+    chronologyDrag.latestY = event.clientY;
+    if (!chronologyDragFrame) chronologyDragFrame = requestAnimationFrame(() => {
+      chronologyDragFrame = 0;
+      if (chronologyDrag) $('#chronology').scrollTop = chronologyDrag.startScrollTop - (chronologyDrag.latestY - chronologyDrag.startY);
+    });
     event.preventDefault();
   });
   const finishChronologyDrag = (event) => {
     if (!chronologyDrag || (event.pointerId !== undefined && chronologyDrag.pointerId !== event.pointerId)) return;
-    const moved = chronologyDrag.moved; chronologyDrag = null; $('#chronology').classList.remove('is-dragging');
+    if (chronologyDragFrame) { cancelAnimationFrame(chronologyDragFrame); chronologyDragFrame = 0; }
+    if (chronologyDrag.moved && Number.isFinite(chronologyDrag.latestY)) $('#chronology').scrollTop = chronologyDrag.startScrollTop - (chronologyDrag.latestY - chronologyDrag.startY);
+    const moved = chronologyDrag.moved; chronologyDrag = null; $('#chronology').classList.remove('is-dragging'); document.body.classList.remove('timeline-dragging');
     if (moved) chronologySuppressClickUntil = performance.now() + 260;
     settleChronology();
   };

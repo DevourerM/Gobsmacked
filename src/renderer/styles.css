@@ -444,3 +444,14 @@ button, .glass, .calendar-day, .inline-media-token, .library-row { transition-pr
 @media (max-width: 1060px) {
   .chronology-shell .timeline-cursor { left: 66px; }
 }
+
+/* Keep timeline dragging on its own paint layer. */
+.timeline-panel, .history-preview { contain: layout paint; }
+.chronology-shell { contain: layout paint; }
+.chronology-shell .chronology { mask-image: none; will-change: scroll-position; }
+.chronology-shell::before, .chronology-shell::after { content: ""; position: absolute; z-index: 7; left: 0; right: 8px; height: 34px; pointer-events: none; }
+.chronology-shell::before { top: 0; background: linear-gradient(180deg, #020609 0, rgba(2,6,9,.9) 24%, transparent 100%); }
+.chronology-shell::after { bottom: 0; background: linear-gradient(0deg, #020609 0, rgba(2,6,9,.9) 24%, transparent 100%); }
+body.timeline-dragging .timeline-tick, body.timeline-scrolling .timeline-tick,
+body.timeline-dragging .timeline-tick::before, body.timeline-scrolling .timeline-tick::before { transition: none !important; }
+body.timeline-dragging .chronology-shell .timeline-cursor, body.timeline-scrolling .chronology-shell .timeline-cursor { box-shadow: 0 0 6px rgba(150,224,252,.45); }
