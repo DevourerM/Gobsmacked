@@ -23,3 +23,10 @@ test('历史拖动不依赖原生超长滚动层', () => {
   assert.doesNotMatch(renderer, /chronology['"]\)\.addEventListener\(['"]scroll/);
   assert.doesNotMatch(renderer, /chronology['"]\)\.scrollTop/);
 });
+
+test('文字输入合并同步，不在每次按键递归扫描整段记录', () => {
+  assert.match(renderer, /addEventListener\(['"]input['"], \(\) => \{ queueParagraphSync\(editor, block\); markDirty\(\); \}\)/);
+  assert.doesNotMatch(renderer, /addEventListener\(['"]input['"], \(\) => \{ readParagraphEditor/);
+  assert.match(renderer, /editor\.spellcheck = false/);
+  assert.match(renderer, /flushPendingParagraphEditors\(\);\s*if \(state\.saving\)/);
+});

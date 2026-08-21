@@ -256,7 +256,37 @@ function readParagraphEditor(editor, block) {
   block.text = text.slice(0, 2_000_000);
   block.voices = voices;
   block.images = images;
-  rememberParagraphCaret(editor, block);
+}
+
+const pendingParagraphSyncs = new Map();
+let paragraphSyncTimer;
+let statsTimer;
+
+function flushPendingParagraphEditors() {
+  clearTimeout(paragraphSyncTimer); paragraphSyncTimer = null;
+  for (const [editor, block] of pendingParagraphSyncs) {
+    if (editor.isConnected && state.record?.blocks.includes(block)) readParagraphEditor(editor, block);
+  }
+  pendingParagraphSyncs.clear();
+}
+
+function queueParagraphSync(editor, block) {
+  pendingParagraphSyncs.set(editor, block);
+  clearTimeout(paragraphSyncTimer);
+  paragraphSyncTimer = setTimeout(flushPendingParagraphEditors, 140);
+}
+
+function scheduleStatsUpdate() {
+  clearTimeout(statsTimer);
+  statsTimer = setTimeout(updateStats, 180);
+}
+
+function captureActiveParagraphCaret() {
+  const editor = document.activeElement?.classList?.contains('paragraph-editor')
+    ? document.activeElement
+    : document.querySelector(`[data-block-id="${CSS.escape(state.activeParagraphId || '')}"] .paragraph-editor`);
+  const block = state.record?.blocks.find((item) => item.id === editor?.closest('[data-block-id]')?.dataset.blockId);
+  if (editor && block) rememberParagraphCaret(editor, block);
 }
 
 function insertPlainText(text) {
@@ -391,16 +421,18 @@ function setSaveState(text, className = '') {
 
 function markDirty() {
   if (!state.record) return;
+  const wasDirty = state.dirty;
   state.dirty = true;
   state.editVersion += 1;
-  setSaveState(t('waitingSave'), 'saving');
+  if (!wasDirty) setSaveState(t('waitingSave'), 'saving');
   clearTimeout(state.saveTimer);
   state.saveTimer = setTimeout(saveCurrent, 850);
-  updateStats();
+  scheduleStatsUpdate();
 }
 
 async function saveCurrent() {
   clearTimeout(state.saveTimer);
+  flushPendingParagraphEditors();
   if (state.saving) return state.savePromise;
   if (!state.record || !state.dirty) return;
   const recordToSave = structuredClone(state.record);
@@ -504,6 +536,7 @@ function blockTools(index) {
 
 function renderBlocks() {
   const container = $('#editor-blocks');
+  flushPendingParagraphEditors();
   container.replaceChildren();
   state.record.blocks.forEach((block, index) => {
     const wrapper = document.createElement('section');
@@ -514,13 +547,13 @@ function renderBlocks() {
       block.voices ||= [];
       block.images ||= [];
       const editor = document.createElement('div');
-      editor.className = 'paragraph-editor'; editor.contentEditable = 'true'; editor.spellcheck = true;
+      editor.className = 'paragraph-editor'; editor.contentEditable = 'true'; editor.spellcheck = false;
       editor.dataset.placeholder = t('paragraphPlaceholder'); editor.setAttribute('aria-label', t('textBlock'));
       renderInlineMedia(editor, block);
       editor.addEventListener('focus', () => rememberParagraphCaret(editor, block));
-      editor.addEventListener('keyup', () => rememberParagraphCaret(editor, block));
+      editor.addEventListener('keyup', (event) => { if (/^(Arrow|Home|End|Page)/.test(event.key)) rememberParagraphCaret(editor, block); });
       editor.addEventListener('mouseup', () => rememberParagraphCaret(editor, block));
-      editor.addEventListener('input', () => { readParagraphEditor(editor, block); markDirty(); });
+      editor.addEventListener('input', () => { queueParagraphSync(editor, block); markDirty(); });
       editor.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); insertPlainText('\n'); } });
       editor.addEventListener('paste', (event) => { event.preventDefault(); insertPlainText(event.clipboardData.getData('text/plain')); });
       wrapper.append(editor); container.append(wrapper);
@@ -613,6 +646,8 @@ function resetRecordingPreview() {
 }
 
 function inlineInsertionTarget() {
+  flushPendingParagraphEditors();
+  captureActiveParagraphCaret();
   let block = state.record?.blocks.find((item) => item.type === 'paragraph' && item.id === state.activeParagraphId);
   if (!block) block = [...(state.record?.blocks || [])].reverse().find((item) => item.type === 'paragraph');
   if (!block) {
@@ -1545,7 +1580,9 @@ function bindEvents() {
   });
   $('#record-title').addEventListener('input', (event) => { state.record.title = event.target.value; markDirty(); });
   $('#tag-form').addEventListener('submit', (event) => { event.preventDefault(); const input = $('#tag-input'); const value = input.value.trim(); if (value && !state.record.tags.includes(value) && state.record.tags.length < 30) { state.record.tags.push(value); input.value = ''; renderTags(); markDirty(); } });
-  $('#add-paragraph').addEventListener('click', addParagraph); $('#add-image').addEventListener('click', beginImageInsert); $('#add-audio').addEventListener('click', startRecording);
+  $('#add-paragraph').addEventListener('click', addParagraph);
+  ['#add-image','#add-audio'].forEach((selector) => $(selector).addEventListener('pointerdown', captureActiveParagraphCaret));
+  $('#add-image').addEventListener('click', beginImageInsert); $('#add-audio').addEventListener('click', startRecording);
   $('#image-label-popover').addEventListener('submit', insertImageReference);
   $('#cancel-image-label').addEventListener('click', cancelImageInsert);
   $('#stop-recording').addEventListener('click', stopRecording); $('#use-recording').addEventListener('click', useRecording); $('#cancel-recording').addEventListener('click', cancelRecording);
