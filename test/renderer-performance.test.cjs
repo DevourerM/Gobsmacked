@@ -42,3 +42,22 @@ test('历史布局将年份置于上方整行，月日置于左侧', () => {
 test('图片悬浮预览完整包含纵向图片', () => {
   assert.match(styles, /\.image-popover-open img[^}]*width: 100%[^}]*height: 100%[^}]*object-fit: contain/);
 });
+
+test('全屏图片查看器支持缩放、复位与拖动', () => {
+  assert.match(markup, /id="image-viewer-stage"/);
+  assert.match(markup, /id="image-zoom-out"/);
+  assert.match(markup, /id="image-zoom-in"/);
+  assert.match(markup, /id="image-reset"/);
+  assert.match(renderer, /imageStage\.addEventListener\('wheel'/);
+  assert.match(renderer, /imageStage\.addEventListener\('pointerdown', beginImageViewerPan\)/);
+  assert.match(renderer, /setImageViewerZoom/);
+  assert.match(renderer, /fitImageViewer/);
+  assert.match(styles, /\.image-viewer-stage[^}]*touch-action: none/);
+});
+
+test('图片拖动只更新合成层，不触发页面布局滚动', () => {
+  assert.match(renderer, /translate3d\(\$\{imageViewer\.x\}px, \$\{imageViewer\.y\}px, 0\)/);
+  assert.match(renderer, /scale3d\(\$\{imageViewer\.zoom\}/);
+  assert.match(styles, /\.image-viewer-transform[^}]*will-change: transform/);
+  assert.doesNotMatch(renderer, /imageStage\.addEventListener\('pointermove'[\s\S]{0,300}(?:scrollTop|style\.left|style\.top)/);
+});

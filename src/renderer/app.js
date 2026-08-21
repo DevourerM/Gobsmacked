@@ -338,11 +338,135 @@ function openImagePopover(image, anchor) {
   placePopover($('#image-popover'), anchor);
 }
 
+const imageViewer = {
+  zoom: 1,
+  x: 0,
+  y: 0,
+  baseWidth: 0,
+  baseHeight: 0,
+  pointerId: null,
+  pointerStartX: 0,
+  pointerStartY: 0,
+  panStartX: 0,
+  panStartY: 0,
+  frame: 0
+};
+
+function renderImageViewer() {
+  imageViewer.frame = 0;
+  const transform = $('#image-viewer-transform');
+  const image = $('#image-preview');
+  transform.style.width = `${imageViewer.baseWidth}px`;
+  transform.style.height = `${imageViewer.baseHeight}px`;
+  transform.style.transform = `translate(-50%, -50%) translate3d(${imageViewer.x}px, ${imageViewer.y}px, 0)`;
+  image.style.transform = `scale3d(${imageViewer.zoom}, ${imageViewer.zoom}, 1)`;
+  $('#image-zoom-value').textContent = `${Math.round(imageViewer.zoom * 100)}%`;
+}
+
+function queueImageViewerRender() {
+  if (!imageViewer.frame) imageViewer.frame = requestAnimationFrame(renderImageViewer);
+}
+
+function clampImageViewerPan() {
+  const stage = $('#image-viewer-stage');
+  const viewportWidth = stage.clientWidth;
+  const viewportHeight = stage.clientHeight;
+  const imageWidth = imageViewer.baseWidth * imageViewer.zoom;
+  const imageHeight = imageViewer.baseHeight * imageViewer.zoom;
+  const edge = 64;
+  const maxX = imageWidth > viewportWidth ? (imageWidth - viewportWidth) / 2 + edge : 0;
+  const maxY = imageHeight > viewportHeight ? (imageHeight - viewportHeight) / 2 + edge : 0;
+  imageViewer.x = Math.max(-maxX, Math.min(maxX, imageViewer.x));
+  imageViewer.y = Math.max(-maxY, Math.min(maxY, imageViewer.y));
+}
+
+function fitImageViewer() {
+  const stage = $('#image-viewer-stage');
+  const image = $('#image-preview');
+  if (!image.naturalWidth || !image.naturalHeight || !stage.clientWidth || !stage.clientHeight) return;
+  const availableWidth = Math.max(120, stage.clientWidth - 72);
+  const availableHeight = Math.max(120, stage.clientHeight - 118);
+  const ratio = Math.min(1, availableWidth / image.naturalWidth, availableHeight / image.naturalHeight);
+  imageViewer.baseWidth = Math.max(1, Math.round(image.naturalWidth * ratio));
+  imageViewer.baseHeight = Math.max(1, Math.round(image.naturalHeight * ratio));
+  imageViewer.zoom = 1;
+  imageViewer.x = 0;
+  imageViewer.y = 0;
+  renderImageViewer();
+}
+
+function setImageViewerZoom(value, clientX, clientY) {
+  const stage = $('#image-viewer-stage');
+  if (!imageViewer.baseWidth || !imageViewer.baseHeight) return;
+  const nextZoom = Math.max(1, Math.min(10, Number(value) || 1));
+  const oldZoom = imageViewer.zoom;
+  if (Math.abs(nextZoom - oldZoom) < .001) return;
+  const bounds = stage.getBoundingClientRect();
+  const focusX = Number.isFinite(clientX) ? clientX - bounds.left - bounds.width / 2 : 0;
+  const focusY = Number.isFinite(clientY) ? clientY - bounds.top - bounds.height / 2 : 0;
+  const imagePointX = (focusX - imageViewer.x) / oldZoom;
+  const imagePointY = (focusY - imageViewer.y) / oldZoom;
+  imageViewer.zoom = nextZoom;
+  imageViewer.x = focusX - imagePointX * nextZoom;
+  imageViewer.y = focusY - imagePointY * nextZoom;
+  clampImageViewerPan();
+  queueImageViewerRender();
+}
+
+function beginImageViewerPan(event) {
+  if (event.button !== 0 || imageViewer.pointerId !== null || !imageViewer.baseWidth) return;
+  imageViewer.pointerId = event.pointerId;
+  imageViewer.pointerStartX = event.clientX;
+  imageViewer.pointerStartY = event.clientY;
+  imageViewer.panStartX = imageViewer.x;
+  imageViewer.panStartY = imageViewer.y;
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  event.currentTarget.classList.add('dragging');
+  event.preventDefault();
+}
+
+function moveImageViewerPan(event) {
+  if (event.pointerId !== imageViewer.pointerId) return;
+  imageViewer.x = imageViewer.panStartX + event.clientX - imageViewer.pointerStartX;
+  imageViewer.y = imageViewer.panStartY + event.clientY - imageViewer.pointerStartY;
+  clampImageViewerPan();
+  queueImageViewerRender();
+  event.preventDefault();
+}
+
+function endImageViewerPan(event) {
+  if (event.pointerId !== imageViewer.pointerId) return;
+  event.currentTarget.releasePointerCapture?.(event.pointerId);
+  event.currentTarget.classList.remove('dragging');
+  imageViewer.pointerId = null;
+}
+
+function closeFullImage() {
+  const stage = $('#image-viewer-stage');
+  stage.classList.remove('dragging');
+  imageViewer.pointerId = null;
+  if (imageViewer.frame) cancelAnimationFrame(imageViewer.frame);
+  imageViewer.frame = 0;
+  imageViewer.zoom = 1;
+  imageViewer.x = 0;
+  imageViewer.y = 0;
+  imageViewer.baseWidth = 0;
+  imageViewer.baseHeight = 0;
+  hideModal('image-modal');
+  $('#image-modal').classList.remove('loading');
+  $('#image-preview').removeAttribute('src');
+}
+
 function openFullImage(source, label = '') {
   closeImagePopover();
-  $('#image-preview').src = source;
-  $('#image-preview').alt = label || t('image');
+  const modal = $('#image-modal');
+  const image = $('#image-preview');
+  modal.classList.add('loading');
   showModal('image-modal');
+  image.alt = label || t('image');
+  image.onload = () => { modal.classList.remove('loading'); fitImageViewer(); };
+  image.onerror = () => modal.classList.remove('loading');
+  image.src = source;
 }
 
 function setSkyRevealed(revealed) {
@@ -1603,6 +1727,23 @@ function bindEvents() {
   $('#voice-player-dial').addEventListener('click', (event) => seekAudioRing($('#voice-player-audio'), event.currentTarget, event, state.voicePlayerKnownDuration));
   $('#close-image-popover').addEventListener('click', closeImagePopover);
   $('#image-popover-open').addEventListener('click', (event) => openFullImage(event.currentTarget.dataset.source, event.currentTarget.dataset.label));
+  const imageStage = $('#image-viewer-stage');
+  imageStage.addEventListener('pointerdown', beginImageViewerPan);
+  imageStage.addEventListener('pointermove', moveImageViewerPan);
+  imageStage.addEventListener('pointerup', endImageViewerPan);
+  imageStage.addEventListener('pointercancel', endImageViewerPan);
+  imageStage.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const sensitivity = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? .045 : .0015;
+    setImageViewerZoom(imageViewer.zoom * Math.exp(-event.deltaY * sensitivity), event.clientX, event.clientY);
+  }, { passive: false });
+  imageStage.addEventListener('dblclick', (event) => {
+    setImageViewerZoom(imageViewer.zoom > 1.05 ? 1 : 2.5, event.clientX, event.clientY);
+  });
+  $('#image-zoom-out').addEventListener('click', () => setImageViewerZoom(imageViewer.zoom / 1.25));
+  $('#image-zoom-in').addEventListener('click', () => setImageViewerZoom(imageViewer.zoom * 1.25));
+  $('#image-reset').addEventListener('click', fitImageViewer);
+  $('#close-image-modal').addEventListener('click', closeFullImage);
   $('#prev-month').addEventListener('click', () => { state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth()-1,1,12); refreshCalendarData(); });
   $('#next-month').addEventListener('click', () => { state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth()+1,1,12); refreshCalendarData(); });
   $('#annotate-button').addEventListener('click', openAnnotation);
@@ -1768,13 +1909,26 @@ function bindEvents() {
   $('#export-migration').addEventListener('click', () => runHistoryExport('migration'));
   $('#import-legacy').addEventListener('click', async () => { if (!state.historyUnlocked) return; try { const selection = await api.selectLegacyDiary(); if (!selection) return; if (!selection.count) { toast(state.language === 'zh' ? '没有识别到有效日记段落' : 'No valid diary entries were found'); return; } const sample = selection.sample.map((item) => item.date).join('、'); if (!confirm(state.language === 'zh' ? `识别到 ${selection.year} 年的 ${selection.count} 篇记录（如 ${sample}）。\n\n导入不会覆盖已有日期。是否继续？` : `${selection.count} records from ${selection.year} were found (for example ${sample}).\n\nExisting dates will not be overwritten. Continue?`)) return; const result = await api.importLegacyEntries(selection.entries); toast(state.language === 'zh' ? `导入完成：新增 ${result.imported} 篇，跳过 ${result.skipped} 篇` : `Import complete: ${result.imported} added, ${result.skipped} skipped`); await refreshCalendarData(); await configureTimeline(); } catch (error) { toast(`${state.language === 'zh' ? '导入失败' : 'Import failed'}: ${error.message}`); } });
   $$('[data-close]').forEach((button) => button.addEventListener('click', () => hideModal(button.dataset.close)));
-  $('#image-modal').addEventListener('click', (event) => { if (event.target.id === 'image-modal') hideModal('image-modal'); });
   document.addEventListener('pointerdown', (event) => {
     if (event.target.closest('.media-popover, .inline-media-token, #add-image')) return;
     closeVoicePlayer(); closeImagePopover();
     if (!$('#image-label-popover').classList.contains('hidden')) cancelImageInsert();
   });
-  addEventListener('keydown', (event) => { if (event.key === 'Escape') { setSkyRevealed(false); cancelRecording(); cancelImageInsert(); closeVoicePlayer(); closeImagePopover(); $$('.overlay, .image-modal').forEach((item) => item.classList.add('hidden')); } if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); saveCurrent(); } });
+  addEventListener('keydown', (event) => {
+    const imageOpen = !$('#image-modal').classList.contains('hidden');
+    if (imageOpen && ['+', '=', '-', '_', '0'].includes(event.key)) {
+      event.preventDefault();
+      if (event.key === '0') fitImageViewer();
+      else setImageViewerZoom(imageViewer.zoom * (event.key === '-' || event.key === '_' ? .8 : 1.25));
+    }
+    if (event.key === 'Escape') {
+      setSkyRevealed(false); cancelRecording(); cancelImageInsert(); closeVoicePlayer(); closeImagePopover();
+      if (imageOpen) closeFullImage();
+      $$('.overlay').forEach((item) => item.classList.add('hidden'));
+    }
+    if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); saveCurrent(); }
+  });
+  addEventListener('resize', () => { if (!$('#image-modal').classList.contains('hidden')) fitImageViewer(); });
   addEventListener('beforeunload', () => { if (state.dirty) saveCurrent(); });
 }
 

@@ -191,7 +191,20 @@
     <button type="submit" class="primary wide" data-i18n="insertImageTag">插入标签</button>
   </form>
 
-  <section id="image-modal" class="image-modal hidden" aria-label="图片预览"><button class="modal-close" data-close="image-modal">×</button><img id="image-preview" alt="记录图片放大预览"></section>
+  <section id="image-modal" class="image-modal hidden" role="dialog" aria-modal="true" aria-label="图片查看">
+    <div id="image-viewer-stage" class="image-viewer-stage">
+      <div id="image-viewer-transform" class="image-viewer-transform">
+        <img id="image-preview" draggable="false" alt="记录图片放大预览">
+      </div>
+    </div>
+    <div class="image-viewer-toolbar" role="toolbar" aria-label="图片缩放">
+      <button id="image-zoom-out" type="button" aria-label="缩小">−</button>
+      <output id="image-zoom-value" aria-live="polite">100%</output>
+      <button id="image-zoom-in" type="button" aria-label="放大">＋</button>
+      <button id="image-reset" type="button" class="image-reset" aria-label="适应窗口">适应</button>
+    </div>
+    <button id="close-image-modal" type="button" class="modal-close" aria-label="关闭">×</button>
+  </section>
   <div id="toast" class="toast" role="status"></div>
   <script src="app.js"></script>
 </body>
