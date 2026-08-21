@@ -600,25 +600,25 @@ function registerIpc() {
     await fsp.writeFile(path.join(vaultRoot, 'assets', storedName), Buffer.from(bytes));
     return { assetId: storedName, fileName: `recording-${new Date().toISOString().replace(/[:.]/g, '-')}${extension}` };
   });
-  ipcMain.handle('attachment:import', async () => {
-    requireMain();
+  ipcMain.handle('attachment:import', async (_event, context = {}) => {
+    requireInner();
     const choice = await dialog.showMessageBox(mainWindow, { title: '添加附件', message: '选择附件类型', buttons: ['文件', '文件夹', '取消'], cancelId: 2, defaultId: 0 });
     if (choice.response === 2) return null;
     const directory = choice.response === 1;
     const picked = await dialog.showOpenDialog(mainWindow, { title: directory ? '选择附件文件夹' : '选择附件', properties: directory ? ['openDirectory'] : ['openFile', 'multiSelections'] });
     if (picked.canceled || !picked.filePaths.length) return null;
-    const imported = [];
+    const manifest = await getLibraryManifest(); const imported = [];
+    const date = String(context.date || '未分类').replace(/[^0-9-]/g, '') || '未分类';
+    const parent = normalizeVirtualPath(`记录附件/${context.kind === 'year' ? date : `${date.slice(0, 4)}/${date}`}`);
     for (const source of picked.filePaths) {
       assertExternalTransferPath(source);
       if (pathInside(userDataRoot, source) || pathInside(source, userDataRoot)) throw new Error('不能从系统数据目录导入附件');
-      const stat = await fsp.stat(source); const assetId = uid('attachment'); const root = path.join(vaultRoot, 'attachments', assetId);
-      const fileName = path.basename(source); const destination = path.join(root, fileName);
-      await fsp.mkdir(root, { recursive: true });
-      try { await fsp.cp(source, destination, { recursive: stat.isDirectory(), errorOnExist: true, force: false }); }
-      catch (error) { await fsp.rm(root, { recursive: true, force: true }); throw error; }
+      const stat = await fsp.stat(source); const fileName = path.basename(source); const virtualPath = uniqueVirtualPath(manifest, parent, fileName);
+      await addSourceToManifest(manifest, source, virtualPath);
       const size = stat.isFile() ? stat.size : (await inventoryTree(source)).filter((item) => item.type === 'file').reduce((sum, item) => sum + item.size, 0);
-      imported.push({ id: uid('attachment'), source: 'asset', assetId, fileName, type: stat.isDirectory() ? 'directory' : 'file', size });
+      imported.push({ id: uid('attachment'), source: 'library', path: virtualPath, fileName, type: stat.isDirectory() ? 'directory' : 'file', size });
     }
+    await saveManifest(libraryRoot, await getArchiveKey(), manifest); librarySummaryCache = null;
     return imported;
   });
   ipcMain.handle('attachment:export', async (_event, attachment) => {

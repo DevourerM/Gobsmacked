@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('gobsmacked', {
   calendarRecords: (month) => ipcRenderer.invoke('record:calendar', month),
   importAsset: (type) => ipcRenderer.invoke('asset:import', type),
   saveRecording: (bytes, mimeType) => ipcRenderer.invoke('asset:saveRecording', { bytes, mimeType }),
-  importAttachments: () => ipcRenderer.invoke('attachment:import'),
+  importAttachments: (context) => ipcRenderer.invoke('attachment:import', context),
   exportAttachment: (attachment) => ipcRenderer.invoke('attachment:export', attachment),
   linkLegacyAttachments: () => ipcRenderer.invoke('attachment:linkLegacy'),
   getEarthOutlines: () => ipcRenderer.invoke('earth:outlines'),

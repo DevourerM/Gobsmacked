@@ -9,7 +9,7 @@ const messages = {
     calendar: '日历',
     addTag: '＋ 添加标签', addContent: '添加内容', textBlock: '¶ 文本', image: '▧ 图片', recordAudio: '● 录音', attachment: '⌕ 附件', attachments: '附件', exportAttachment: '导出附件', environment: '环境', currentLocation: '当前位置', clear: '清除',
     noLocation: '尚未记录地点', setLocation: '设置地点', todaySummary: '今日概览', textCount: '文字数', mediaCount: '媒体数',
-    protectedArchive: '独立保护', verifyPast: '验证访问', verify: '验证', setupHistoryAccess: '设置历史密钥', saveAndEnter: '保存并进入', historySecret: '历史密钥', archive: '历史', archiveReview: '历史记录', importLegacy: '导入旧记录', exportContent: '导出内容', exportMigration: '迁移备份', returnPresent: '返回今天', recordArchive: '记录', fileArchive: '资料',
+    protectedArchive: '独立保护', verifyPast: '验证访问', encryptAttachment: '加密附件', verify: '验证', setupHistoryAccess: '设置历史密钥', saveAndEnter: '保存并进入', historySecret: '历史密钥', archive: '历史', archiveReview: '历史记录', importLegacy: '导入旧记录', exportContent: '导出内容', exportMigration: '迁移备份', returnPresent: '返回今天', recordArchive: '记录', fileArchive: '资料',
     chronology: '时间轴', yearScale: '年份', dayScale: '月份 / 记录日', dragChronology: '拖动刻度', filterFiles: '筛选当前目录', importFiles: '导入文件', importFolder: '导入文件夹', openFile: '打开', extractFile: '提取', libraryEmpty: '当前目录为空', sealedArchive: '加密档案', voiceRecord: '录音', recording: '正在录音', recordingActive: '正在录音', stopRecording: '停止', insertRecording: '插入标签',
     voiceLabel: '录音标签', voiceLabelPlaceholder: '例如：雨声', imageLabel: '图片标签', imageLabelPlaceholder: '例如：星空', insertImageTag: '插入标签', previewRecording: '试听录音', play: '播放', pause: '暂停',
     calendarMark: '日期标注', markContent: '标注内容', markPlaceholder: '纪念日、约定或事件', displayScope: '显示范围', once: '仅此日期', onceDesc: '只在这一年的这一天显示', annual: '每年重复', annualDesc: '每年的同一日期显示', saveMark: '保存标注', place: '地点', placePlaceholder: '地点名称或地址', saveAddress: '保存', locateSave: '定位',
@@ -26,7 +26,7 @@ const messages = {
     calendar: 'CALENDAR',
     addTag: '+ Add tag', addContent: 'Add content', textBlock: '¶ Text', image: '▧ Image', recordAudio: '● Record', attachment: '⌕ Attach', attachments: 'Attachments', exportAttachment: 'Export attachment', environment: 'ENVIRONMENT', currentLocation: 'Current Place', clear: 'Clear',
     noLocation: 'No place recorded', setLocation: 'Set Place', todaySummary: 'TODAY', textCount: 'Characters', mediaCount: 'Media',
-    protectedArchive: 'SEPARATE ACCESS', verifyPast: 'Verify Access', verify: 'Verify', setupHistoryAccess: 'Set History Passkey', saveAndEnter: 'Save and Enter', historySecret: 'History passkey', archive: 'ARCHIVE', archiveReview: 'Past Records', importLegacy: 'Import Records', exportContent: 'Export Content', exportMigration: 'Migration Copy', returnPresent: 'Return to Present', recordArchive: 'Records', fileArchive: 'Files',
+    protectedArchive: 'SEPARATE ACCESS', verifyPast: 'Verify Access', encryptAttachment: 'Encrypt Attachment', verify: 'Verify', setupHistoryAccess: 'Set History Passkey', saveAndEnter: 'Save and Enter', historySecret: 'History passkey', archive: 'ARCHIVE', archiveReview: 'Past Records', importLegacy: 'Import Records', exportContent: 'Export Content', exportMigration: 'Migration Copy', returnPresent: 'Return to Present', recordArchive: 'Records', fileArchive: 'Files',
     chronology: 'TIMELINE', yearScale: 'Years', dayScale: 'Months / recorded days', dragChronology: 'Drag the scales', filterFiles: 'Filter this folder', importFiles: 'Import Files', importFolder: 'Import Folder', openFile: 'Open', extractFile: 'Extract', libraryEmpty: 'This folder is empty', sealedArchive: 'Encrypted Archive', voiceRecord: 'RECORDING', recording: 'Recording', recordingActive: 'Recording', stopRecording: 'Stop', insertRecording: 'Insert Tag',
     voiceLabel: 'Recording label', voiceLabelPlaceholder: 'For example: Rain', imageLabel: 'Image label', imageLabelPlaceholder: 'For example: Night sky', insertImageTag: 'Insert Tag', previewRecording: 'Preview recording', play: 'Play', pause: 'Pause',
     calendarMark: 'DATE MARK', markContent: 'Description', markPlaceholder: 'Anniversary, appointment, or event', displayScope: 'Display scope', once: 'This date only', onceDesc: 'Show only on this date in this year', annual: 'Repeat yearly', annualDesc: 'Show on the same date every year', saveMark: 'Save Mark', place: 'Place', placePlaceholder: 'Place or address', saveAddress: 'Save', locateSave: 'Locate',
@@ -83,7 +83,9 @@ const state = {
   deviceTrusted: false,
   skyRevealed: false,
   exportBusy: false,
-  legacyAttachmentsChecked: false
+  legacyAttachmentsChecked: false,
+  innerGatePurpose: 'history',
+  pendingAttachmentExport: null
 };
 
 function t(key, variables = {}) {
@@ -633,6 +635,11 @@ function renderRecord() {
 }
 
 async function exportRecordAttachment(attachment) {
+  if (!state.historyUnlocked) { state.pendingAttachmentExport = attachment; openInnerGate('attachment-export'); return; }
+  await exportRecordAttachmentNow(attachment);
+}
+
+async function exportRecordAttachmentNow(attachment) {
   try {
     const result = await api.exportAttachment(attachment);
     if (result) toast(state.language === 'zh' ? `已导出到 ${result.path}` : `Exported to ${result.path}`);
@@ -746,8 +753,12 @@ function addParagraph() {
 }
 
 async function addAttachments() {
+  openInnerGate('attachment-import');
+}
+
+async function importAttachmentsNow() {
   try {
-    const imported = await api.importAttachments();
+    const imported = await api.importAttachments({ kind: state.record?.kind, date: state.record?.date });
     if (!imported?.length || !state.record) return;
     state.record.attachments ||= [];
     state.record.attachments.push(...imported);
@@ -1709,11 +1720,17 @@ async function initializeAuth() {
 function configureHistoryGate() {
   const setup = !state.innerConfigured;
   $('#inner-auth-form').dataset.setup = setup ? 'true' : 'false';
-  $('#inner-auth-title').dataset.i18n = setup ? 'setupHistoryAccess' : 'verifyPast';
-  $('#inner-auth-title').textContent = t(setup ? 'setupHistoryAccess' : 'verifyPast');
+  const titleKey = setup ? 'setupHistoryAccess' : state.innerGatePurpose === 'history' ? 'verifyPast' : 'encryptAttachment';
+  $('#inner-auth-title').dataset.i18n = titleKey;
+  $('#inner-auth-title').textContent = t(titleKey);
   $('#inner-auth-submit').dataset.i18n = setup ? 'saveAndEnter' : 'verify';
   $('#inner-auth-submit').textContent = t(setup ? 'saveAndEnter' : 'verify');
   $('#inner-secret').autocomplete = setup ? 'new-password' : 'current-password';
+}
+
+function openInnerGate(purpose = 'history') {
+  state.innerGatePurpose = purpose; $('#inner-secret').value = ''; $('#inner-error').textContent = '';
+  configureHistoryGate(); showModal('history-gate'); setTimeout(() => $('#inner-secret').focus(), 50);
 }
 
 async function enterApp() {
@@ -1823,7 +1840,7 @@ function bindEvents() {
   addEventListener('pointerup', finishSkyDrag);
   addEventListener('pointercancel', finishSkyDrag);
   $('#close-sky').addEventListener('click', () => setSkyRevealed(false));
-  $('#history-button').addEventListener('click', () => { $('#inner-secret').value = ''; $('#inner-error').textContent = ''; configureHistoryGate(); showModal('history-gate'); setTimeout(() => $('#inner-secret').focus(),50); });
+  $('#history-button').addEventListener('click', () => openInnerGate('history'));
   $('#inner-auth-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const secret = $('#inner-secret').value; $('#inner-error').textContent = '';
     try {
@@ -1833,7 +1850,14 @@ function bindEvents() {
         const result = await api.authVerify(secret, 'inner');
         if (!result.ok) throw new Error(result.retryAfterMs > 500 ? `${t('verifyFailed')} · ${Math.ceil(result.retryAfterMs / 1000)}s` : t('verifyFailed'));
       }
-      state.historyUnlocked = true; showHistory();
+      if (state.innerGatePurpose === 'history') { state.historyUnlocked = true; showHistory(); }
+      else {
+        hideModal('history-gate');
+        try {
+          if (state.innerGatePurpose === 'attachment-import') await importAttachmentsNow();
+          else if (state.pendingAttachmentExport) await exportRecordAttachmentNow(state.pendingAttachmentExport);
+        } finally { state.pendingAttachmentExport = null; await api.lockInner(); }
+      }
     } catch (error) { $('#inner-error').textContent = error.message; }
   });
   $('#close-history').addEventListener('click', hideHistory);

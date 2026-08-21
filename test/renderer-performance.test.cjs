@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const renderer = fs.readFileSync(path.join(root, 'src', 'renderer', 'app.js'), 'utf8');
+const main = fs.readFileSync(path.join(root, 'src', 'main.cjs'), 'utf8');
 const markup = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'src', 'renderer', 'styles.css'), 'utf8');
 
@@ -65,8 +66,15 @@ test('图片拖动只更新合成层，不触发页面布局滚动', () => {
 test('记录与历史以附件条目导出文件且不创建预览', () => {
   assert.match(markup, /id="record-attachments"/);
   assert.match(markup, /id="add-attachment"/);
-  assert.match(renderer, /api\.importAttachments\(\)/);
+  assert.match(renderer, /api\.importAttachments\(\{ kind: state\.record\?\.kind, date: state\.record\?\.date \}\)/);
   assert.match(renderer, /api\.exportAttachment\(attachment\)/);
   assert.match(renderer, /attachmentShelf\(record\.attachments\)/);
   assert.doesNotMatch(renderer, /createObjectURL\([^)]*attachment/);
+});
+
+test('新附件经历史密钥验证后写入加密档案对象', () => {
+  assert.match(renderer, /openInnerGate\('attachment-import'\)/);
+  assert.match(main, /ipcMain\.handle\('attachment:import'[\s\S]*?requireInner\(\)/);
+  assert.match(main, /ipcMain\.handle\('attachment:import'[\s\S]*?addSourceToManifest\(manifest, source, virtualPath\)/);
+  assert.match(main, /ipcMain\.handle\('attachment:import'[\s\S]*?saveManifest\(libraryRoot, await getArchiveKey\(\), manifest\)/);
 });
