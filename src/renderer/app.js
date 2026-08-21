@@ -951,13 +951,15 @@ function seededRandom(initialSeed) {
 
 function createCosmosPainter(canvas, { seed, density, nebulaStrength }) {
   const ctx = canvas.getContext('2d');
-  let stars = []; let background = null; let width = 0; let height = 0;
+  let stars = []; let background = null; let width = 0; let height = 0; let lastPaintAt = -Infinity; let wasActive = false; let resizeTimer;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   function gaussian(random) { return (random() + random() + random() + random() - 2) / 2; }
   function resize() {
     const bounds = canvas.getBoundingClientRect();
-    width = Math.max(1, Math.round(bounds.width)); height = Math.max(1, Math.round(bounds.height));
-    const scale = Math.min(devicePixelRatio, 2); canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale); ctx.setTransform(scale,0,0,scale,0,0);
+    const nextWidth = Math.max(1, Math.round(bounds.width)); const nextHeight = Math.max(1, Math.round(bounds.height));
+    if (nextWidth === width && nextHeight === height && background) return;
+    width = nextWidth; height = nextHeight; lastPaintAt = -Infinity;
+    const scale = Math.min(devicePixelRatio, 1.5); canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale); ctx.setTransform(scale,0,0,scale,0,0);
     const random = seededRandom(seed + width * 17 + height * 31);
     background = document.createElement('canvas'); background.width = width; background.height = height;
     const back = background.getContext('2d');
@@ -1039,7 +1041,19 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength }) {
       return { x: random()*width, y: random()*height, r: bright ? .9+random()*1.2 : .2+random()*.7, a: bright ? .66+random()*.25 : .16+random()*.52, phase: random()*Math.PI*2, speed: .32+random()*1.1, color: starColors[Math.floor(random()*starColors.length)], bright };
     });
   }
+  function isActive() {
+    if (document.hidden) return false;
+    const historyOpen = !$('#history').classList.contains('hidden');
+    if (canvas.id === 'history-cosmos') return historyOpen;
+    if (canvas.id === 'sky-cosmos') return !historyOpen && (state.skyRevealed || document.body.classList.contains('sky-dragging'));
+    return !historyOpen && !state.skyRevealed && !document.body.classList.contains('sky-dragging');
+  }
   function paint(time = 0) {
+    requestAnimationFrame(paint);
+    if (!isActive()) { wasActive = false; return; }
+    if (!wasActive) { wasActive = true; lastPaintAt = -Infinity; }
+    if ((reducedMotion && Number.isFinite(lastPaintAt)) || time - lastPaintAt < 33) return;
+    lastPaintAt = time;
     ctx.clearRect(0,0,width,height); if (background) ctx.drawImage(background,0,0,width,height);
     stars.forEach((star) => {
       const shimmer = reducedMotion ? 0 : Math.sin(time/900*star.speed + star.phase)*.16;
@@ -1050,9 +1064,11 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength }) {
         const flare = star.r*2.8; ctx.globalAlpha *= .24; ctx.strokeStyle = star.color; ctx.lineWidth = .4; ctx.beginPath(); ctx.moveTo(star.x-flare,star.y); ctx.lineTo(star.x+flare,star.y); ctx.moveTo(star.x,star.y-flare); ctx.lineTo(star.x,star.y+flare); ctx.stroke();
       }
     });
-    ctx.globalAlpha = 1; requestAnimationFrame(paint);
+    ctx.globalAlpha = 1;
   }
-  addEventListener('resize', resize); resize(); requestAnimationFrame(paint);
+  const scheduleResize = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 100); };
+  new ResizeObserver(scheduleResize).observe(canvas);
+  resize(); requestAnimationFrame(paint);
 }
 
 function setupCosmos() {
@@ -1062,14 +1078,18 @@ function setupCosmos() {
 }
 
 let historyTimer;
+let historyLoadSerial = 0;
+let historyScheduledSelection = '';
+let historyLoadedSelection = '';
 let chronologySuppressClickUntil = 0;
 let chronologyTweenFrame = 0;
 let chronologyTweenActive = false;
 let chronologySettleTimer;
+let chronologyIgnoreScrollUntil = 0;
 
 function stopChronologyTween() {
   if (chronologyTweenFrame) cancelAnimationFrame(chronologyTweenFrame);
-  chronologyTweenFrame = 0; chronologyTweenActive = false;
+  chronologyTweenFrame = 0; chronologyTweenActive = false; chronologyIgnoreScrollUntil = 0;
 }
 
 function centerChronologyMarker(marker, animated = true) {
@@ -1078,7 +1098,8 @@ function centerChronologyMarker(marker, animated = true) {
   const target = Math.round(Math.max(0, Math.min(container.scrollHeight - container.clientHeight, marker.y - container.clientHeight / 2)));
   const start = container.scrollTop; const distance = target - start;
   stopChronologyTween();
-  if (!animated || Math.abs(distance) < 3) { container.scrollTop = target; return; }
+  if (!animated) { container.scrollTop = target; return; }
+  if (Math.abs(distance) < 3) return;
   chronologyTweenActive = true;
   const startedAt = performance.now(); const duration = Math.min(440, Math.max(190, Math.abs(distance) * .55));
   const step = (now) => {
@@ -1086,7 +1107,7 @@ function centerChronologyMarker(marker, animated = true) {
     const eased = 1 - (1 - progress) ** 3;
     container.scrollTop = start + distance * eased;
     if (progress < 1) chronologyTweenFrame = requestAnimationFrame(step);
-    else { chronologyTweenFrame = 0; chronologyTweenActive = false; container.scrollTop = target; }
+    else { chronologyTweenFrame = 0; chronologyIgnoreScrollUntil = performance.now() + 300; container.scrollTop = target; chronologyTweenActive = false; }
   };
   chronologyTweenFrame = requestAnimationFrame(step);
 }
@@ -1133,7 +1154,7 @@ function renderChronology() {
     marker.type = 'button'; marker.className = 'timeline-tick major'; marker.style.top = `${y}px`; marker.dataset.kind = 'year'; marker.dataset.key = String(year);
     const line = document.createElement('i'); const label = document.createElement('span'); label.textContent = String(year);
     marker.append(line, label); marker.addEventListener('click', () => { if (performance.now() >= chronologySuppressClickUntil) selectTimeline('year', String(year), true); });
-    ticks.append(marker); markers.push({ kind: 'year', key: String(year), y });
+    ticks.append(marker); markers.push({ kind: 'year', key: String(year), y, node: marker });
     const yearDays = daysByYear.get(year) || [];
     let previousMonth = -1;
     yearDays.forEach((key, index) => {
@@ -1146,7 +1167,7 @@ function renderChronology() {
       dayMarker.type = 'button'; dayMarker.className = `timeline-tick minor${monthStart ? ' month-start' : ''}${fifth ? ' fifth' : ''}`; dayMarker.style.top = `${dayY}px`; dayMarker.dataset.kind = 'day'; dayMarker.dataset.key = key; dayMarker.title = displayDate(key);
       dayMarker.dataset.shortLabel = `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
       dayMarker.append(document.createElement('i')); dayMarker.addEventListener('click', () => { if (performance.now() >= chronologySuppressClickUntil) selectTimeline('day', key, true); });
-      ticks.append(dayMarker); markers.push({ kind: 'day', key, y: dayY });
+      ticks.append(dayMarker); markers.push({ kind: 'day', key, y: dayY, node: dayMarker });
     });
     cursorY += yearDays.length ? dayOffset + Math.max(0, yearDays.length - 1) * dayStep + yearTail : emptyYearGap;
   }
@@ -1158,51 +1179,65 @@ function renderChronology() {
   track.style.setProperty('--rail-bottom', `${edge}px`);
 
   state.timelineMarkers = markers.sort((a, b) => a.y - b.y || (a.kind === 'year' ? -1 : 1));
+  state.timelineMarkerMap = new Map(state.timelineMarkers.map((marker) => [`${marker.kind}:${marker.key}`, marker]));
   $('#day-scale-legend').classList.toggle('hidden', state.historyIndex.days.length === 0);
   container.classList.toggle('years-only', state.historyIndex.days.length === 0);
   if (state.timelineSelection) updateTimelineCursor(false);
 }
 
 function nearestTimelineMarkerAtCenter() {
-  if (!state.timelineMarkers?.length) return;
+  const markers = state.timelineMarkers;
+  if (!markers?.length) return;
   const container = $('#chronology');
   const contentY = container.scrollTop + container.clientHeight / 2;
-  return state.timelineMarkers.reduce((best, marker) => Math.abs(marker.y - contentY) < Math.abs(best.y - contentY) ? marker : best);
+  let low = 0; let high = markers.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (markers[middle].y < contentY) low = middle + 1;
+    else high = middle;
+  }
+  const after = markers[low]; const before = markers[Math.max(0, low - 1)];
+  return Math.abs(before.y - contentY) <= Math.abs(after.y - contentY) ? before : after;
 }
 
-function selectNearestTimelineMarker(load = true) {
+function selectNearestTimelineMarker() {
   const nearest = nearestTimelineMarkerAtCenter();
   if (!nearest) return;
-  const unchanged = state.timelineSelection?.kind === nearest.kind && state.timelineSelection?.key === nearest.key;
   state.timelineSelection = { kind: nearest.kind, key: nearest.key };
   $('#timeline-date').textContent = nearest.kind === 'year' ? nearest.key : nearest.key.replaceAll('-', '.');
   updateTimelineCursor(false);
-  if (!load || unchanged) return;
-  clearTimeout(historyTimer);
-  historyTimer = setTimeout(() => loadHistoryRecord(nearest.kind, nearest.key), 140);
+  return nearest;
 }
 
-function selectTimeline(kind, key, center = false) {
+function selectTimeline(kind, key, center = false, loadDelay = center ? 500 : 100) {
   state.timelineSelection = { kind, key };
   $('#timeline-date').textContent = kind === 'year' ? key : key.replaceAll('-', '.');
   updateTimelineCursor(center);
   clearTimeout(historyTimer);
-  historyTimer = setTimeout(() => loadHistoryRecord(kind, key), 90);
+  const selectionId = `${kind}:${key}`; historyScheduledSelection = selectionId;
+  historyTimer = setTimeout(() => {
+    if (historyScheduledSelection !== selectionId) return;
+    historyScheduledSelection = ''; loadHistoryRecord(kind, key);
+  }, loadDelay);
 }
 
 function updateTimelineCursor(center) {
   const selection = state.timelineSelection;
-  const marker = state.timelineMarkers?.find((item) => item.kind === selection?.kind && item.key === selection?.key);
+  const marker = state.timelineMarkerMap?.get(`${selection?.kind}:${selection?.key}`);
   if (!marker) return;
-  $$('.timeline-tick').forEach((node) => node.classList.toggle('active', node.dataset.kind === selection.kind && node.dataset.key === selection.key));
+  const previous = $('.timeline-tick.active');
+  if (previous !== marker.node) { previous?.classList.remove('active'); marker.node.classList.add('active'); }
   if (center) centerChronologyMarker(marker, true);
 }
 
 async function loadHistoryRecord(kind, key) {
+  const serial = ++historyLoadSerial;
   const preview = $('#history-preview');
   preview.innerHTML = `<div class="history-empty"><p>${t('historyLoading')}</p></div>`;
   try {
     const record = await api.getRecord(kind, key);
+    if (serial !== historyLoadSerial) return;
+    historyLoadedSelection = `${kind}:${key}`;
     const hasContent = record.blocks.some((block) => block.type !== 'paragraph' || block.text.trim() || block.voices?.length || block.images?.length);
     preview.replaceChildren();
     preview.classList.toggle('is-empty', !hasContent);
@@ -1218,7 +1253,7 @@ async function loadHistoryRecord(kind, key) {
       if (block.type === 'image') body.append(createImageToken({ ...block, label: imageDisplayLabel(block) }, 'preview-image-token'));
       if (block.type === 'audio') body.append(createVoiceToken({ ...block, label: voiceDisplayLabel(block) }, 'preview-voice-token'));
     });
-  } catch (error) { preview.innerHTML = `<div class="history-empty"><p>${t('historyReadFailed', { message: escapeText(error.message) })}</p></div>`; }
+  } catch (error) { if (serial === historyLoadSerial) preview.innerHTML = `<div class="history-empty"><p>${t('historyReadFailed', { message: escapeText(error.message) })}</p></div>`; }
 }
 
 function formatBytes(value) {
@@ -1315,7 +1350,7 @@ function showHistory() {
 }
 function hideHistory() {
   if (state.exportBusy) { toast(state.language === 'zh' ? '导出进行中' : 'Export in progress'); return; }
-  stopChronologyTween(); clearTimeout(chronologySettleTimer);
+  stopChronologyTween(); clearTimeout(chronologySettleTimer); clearTimeout(historyTimer); historyScheduledSelection = ''; historyLoadSerial += 1;
   $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); state.historyUnlocked = false; api.lockInner();
 }
 
@@ -1456,18 +1491,25 @@ function bindEvents() {
   $('#archive-library-mode').addEventListener('click', () => setArchiveMode('library'));
   let chronologyDrag = null;
   const settleChronology = () => {
+    if (chronologyDrag) return;
     const nearest = nearestTimelineMarkerAtCenter();
-    if (nearest) selectTimeline(nearest.kind, nearest.key, true);
+    if (nearest) selectTimeline(nearest.kind, nearest.key, true, 240);
   };
   $('#chronology').addEventListener('scroll', () => {
-    if (chronologyTweenActive) return;
-    selectNearestTimelineMarker(true);
-    clearTimeout(chronologySettleTimer); chronologySettleTimer = setTimeout(settleChronology, 130);
+    if (chronologyTweenActive || performance.now() < chronologyIgnoreScrollUntil) return;
+    const nearest = nearestTimelineMarkerAtCenter();
+    if (!nearest) return;
+    const contentY = $('#chronology').scrollTop + $('#chronology').clientHeight / 2;
+    const selectionId = `${nearest.kind}:${nearest.key}`;
+    const alreadyOwned = Math.abs(nearest.y - contentY) < 3 && (historyScheduledSelection === selectionId || historyLoadedSelection === selectionId);
+    if (alreadyOwned) { selectNearestTimelineMarker(); return; }
+    clearTimeout(historyTimer); historyScheduledSelection = ''; selectNearestTimelineMarker();
+    if (!chronologyDrag) { clearTimeout(chronologySettleTimer); chronologySettleTimer = setTimeout(settleChronology, 220); }
   }, { passive: true });
   $('#chronology').addEventListener('wheel', stopChronologyTween, { passive: true });
   $('#chronology').addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
-    stopChronologyTween();
+    stopChronologyTween(); clearTimeout(historyTimer); historyScheduledSelection = ''; clearTimeout(chronologySettleTimer);
     chronologyDrag = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: $('#chronology').scrollTop, moved: false };
     $('#chronology').setPointerCapture(event.pointerId); $('#chronology').classList.add('is-dragging');
   });
