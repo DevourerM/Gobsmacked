@@ -34,7 +34,7 @@ npm start
 npm run pack
 ```
 
-产物直接写入项目根目录。双击 `E:\Gobsmacked\Gobsmacked.exe` 启动；根目录中的 `resources`、`locales`、DLL 与数据文件都是运行所需组件。它们是本地运行产物，不提交到源码仓库。
+产物直接写入系统目录。双击 `E:\Gobsmacked\System\Gobsmacked.exe` 启动；`System` 中的 `resources`、`locales`、DLL 与数据文件都是运行所需组件。它们是本地运行产物，不提交到源码仓库。
 
 ## 资料保存位置
 
@@ -46,13 +46,16 @@ npm run pack
 
 真实位置由 Electron 在运行时确定。它只保存结构化记录、记录内图片和录音、日期标注及天幕事件。
 
-大文件与程序、结构化记录分开保存。默认密文仓库位于程序目录的同级路径：
+总目录只分为系统与密文档案两部分：
 
 ```text
-E:\Gobsmacked.Archive\
-  archive.info
-  manifest.gobseal
-  objects\<加密对象>.gse
+E:\Gobsmacked\
+  System\
+    Gobsmacked.exe
+  Archive\
+    archive.info
+    manifest.gobseal
+    objects\<加密对象>.gse
 ```
 
 清单和对象采用 AES-256-GCM 加密，密文目录不暴露原文件名。档案密钥由历史密匙与固定上下文经 scrypt 派生，历史密匙和派生密钥均不落盘、不写入项目。程序只在“历史记录 → 资料”通过二次验证后在内存中解锁清单；打开文件时写入会话临时目录，退出内层或关闭程序时清理。

@@ -21,6 +21,7 @@ npm-debug.log*
 # Personal records, authentication state and encrypted archives
 Gobsmacked.Library/
 Gobsmacked.Archive/
+Archive/
 vault/
 *.gob
 *.gse

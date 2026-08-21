@@ -87,7 +87,7 @@ function defaultConstellation() {
 async function initializeVault() {
   vaultRoot = path.join(app.getPath('userData'), 'vault');
   const programRoot = app.isPackaged ? path.dirname(process.execPath) : path.resolve(__dirname, '..');
-  libraryRoot = path.resolve(process.env.GOBSMACKED_ARCHIVE_ROOT || path.join(path.dirname(programRoot), 'Gobsmacked.Archive'));
+  libraryRoot = path.resolve(process.env.GOBSMACKED_ARCHIVE_ROOT || path.join(path.dirname(programRoot), 'Archive'));
   archiveKeyFile = path.join(app.getPath('userData'), 'sealed-archive-key.bin');
   libraryTempRoot = path.join(app.getPath('temp'), `Gobsmacked-Sealed-${process.pid}`);
   securityFile = path.join(app.getPath('userData'), 'security.json');

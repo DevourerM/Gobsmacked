@@ -31,9 +31,9 @@ async function atomicJson(file, value) {
 
 function assertMigrationPaths(archive, pending, backup) {
   const parent = path.dirname(archive);
-  if (path.basename(archive) !== 'Gobsmacked.Archive') throw new Error('档案路径名称校验失败');
-  if (pending !== path.join(parent, 'Gobsmacked.Archive.rekey-pending')) throw new Error('临时路径校验失败');
-  if (backup !== path.join(parent, 'Gobsmacked.Archive.rekey-backup')) throw new Error('备份路径校验失败');
+  if (path.basename(archive) !== 'Archive') throw new Error('档案路径名称校验失败');
+  if (pending !== path.join(parent, 'Archive.rekey-pending')) throw new Error('临时路径校验失败');
+  if (backup !== path.join(parent, 'Archive.rekey-backup')) throw new Error('备份路径校验失败');
   if (archive === parent || pending === parent || backup === parent) throw new Error('拒绝对上级目录操作');
 }
 
@@ -55,7 +55,7 @@ function send(stage, done, total, bytes, totalBytes, detail = '') {
 
 async function migrate(secret) {
   const projectRoot = path.resolve(__dirname, '..');
-  const archive = path.join(path.dirname(projectRoot), 'Gobsmacked.Archive');
+  const archive = path.join(path.dirname(projectRoot), 'Archive');
   const pending = `${archive}.rekey-pending`;
   const backup = `${archive}.rekey-backup`;
   assertMigrationPaths(archive, pending, backup);
