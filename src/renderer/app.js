@@ -949,17 +949,17 @@ function seededRandom(initialSeed) {
   };
 }
 
-function createCosmosPainter(canvas, { seed, density, nebulaStrength, fps = 30 }) {
+function createCosmosPainter(canvas, { seed, density, nebulaStrength, deferMs = 0, resizeDelay = 100 }) {
   const ctx = canvas.getContext('2d');
-  let stars = []; let background = null; let width = 0; let height = 0; let lastPaintAt = -Infinity; let wasActive = false; let resizeTimer;
-  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let stars = []; let background = null; let width = 0; let height = 0; let resizeTimer; let ready = deferMs <= 0;
   function gaussian(random) { return (random() + random() + random() + random() - 2) / 2; }
   function resize() {
+    if (canvas.id === 'history-cosmos' && (document.body.classList.contains('timeline-dragging') || document.body.classList.contains('timeline-scrolling'))) { scheduleResize(); return; }
     const bounds = canvas.getBoundingClientRect();
     const nextWidth = Math.max(1, Math.round(bounds.width)); const nextHeight = Math.max(1, Math.round(bounds.height));
     if (nextWidth === width && nextHeight === height && background) return;
-    width = nextWidth; height = nextHeight; lastPaintAt = -Infinity;
-    const scale = Math.min(devicePixelRatio, 1.5); canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale); ctx.setTransform(scale,0,0,scale,0,0);
+    width = nextWidth; height = nextHeight;
+    const scale = Math.min(devicePixelRatio, 1.25); canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale); ctx.setTransform(scale,0,0,scale,0,0);
     const random = seededRandom(seed + width * 17 + height * 31);
     background = document.createElement('canvas'); background.width = width; background.height = height;
     const back = background.getContext('2d');
@@ -1038,26 +1038,14 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength, fps = 30 }
     const starColors = ['#ffffff','#d9ecff','#b9d4ff','#fff1ce','#a9e6ff'];
     stars = Array.from({ length: count }, () => {
       const bright = random() > .985;
-      return { x: random()*width, y: random()*height, r: bright ? .9+random()*1.2 : .2+random()*.7, a: bright ? .66+random()*.25 : .16+random()*.52, phase: random()*Math.PI*2, speed: .32+random()*1.1, color: starColors[Math.floor(random()*starColors.length)], bright };
+      return { x: random()*width, y: random()*height, r: bright ? .9+random()*1.2 : .2+random()*.7, a: bright ? .66+random()*.25 : .16+random()*.52, color: starColors[Math.floor(random()*starColors.length)], bright };
     });
+    paint();
   }
-  function isActive() {
-    if (document.hidden) return false;
-    const historyOpen = !$('#history').classList.contains('hidden');
-    if (canvas.id === 'history-cosmos') return historyOpen && !document.body.classList.contains('timeline-dragging') && !document.body.classList.contains('timeline-scrolling');
-    if (canvas.id === 'sky-cosmos') return !historyOpen && (state.skyRevealed || document.body.classList.contains('sky-dragging'));
-    return !historyOpen && !state.skyRevealed && !document.body.classList.contains('sky-dragging');
-  }
-  function paint(time = 0) {
-    requestAnimationFrame(paint);
-    if (!isActive()) { wasActive = false; return; }
-    if (!wasActive) { wasActive = true; lastPaintAt = -Infinity; }
-    if ((reducedMotion && Number.isFinite(lastPaintAt)) || time - lastPaintAt < 1000 / fps) return;
-    lastPaintAt = time;
+  function paint() {
     ctx.clearRect(0,0,width,height); if (background) ctx.drawImage(background,0,0,width,height);
     stars.forEach((star) => {
-      const shimmer = reducedMotion ? 0 : Math.sin(time/900*star.speed + star.phase)*.16;
-      ctx.globalAlpha = Math.max(.08, star.a + shimmer); ctx.fillStyle = star.color;
+      ctx.globalAlpha = star.a; ctx.fillStyle = star.color;
       if (star.bright) { ctx.shadowColor = star.color; ctx.shadowBlur = 9; }
       ctx.beginPath(); ctx.arc(star.x,star.y,star.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
       if (star.bright) {
@@ -1066,49 +1054,108 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength, fps = 30 }
     });
     ctx.globalAlpha = 1;
   }
-  const scheduleResize = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 100); };
-  new ResizeObserver(scheduleResize).observe(canvas);
-  resize(); requestAnimationFrame(paint);
+  const scheduleResize = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, resizeDelay); };
+  new ResizeObserver(() => { if (ready) scheduleResize(); }).observe(canvas);
+  if (ready) resize();
+  else {
+    const prepare = () => { ready = true; resize(); };
+    setTimeout(() => {
+      if ('requestIdleCallback' in window) window.requestIdleCallback(prepare, { timeout: 800 });
+      else prepare();
+    }, deferMs);
+  }
 }
 
 function setupCosmos() {
-  createCosmosPainter($('#starfield'), { seed: 731994, density: 2650, nebulaStrength: .48, fps: 24 });
-  createCosmosPainter($('#history-cosmos'), { seed: 810163, density: 2850, nebulaStrength: .36, fps: 12 });
-  createCosmosPainter($('#sky-cosmos'), { seed: 120819, density: 920, nebulaStrength: 2.7 });
+  createCosmosPainter($('#starfield'), { seed: 731994, density: 1450, nebulaStrength: 1.35 });
+  createCosmosPainter($('#history-cosmos'), { seed: 810163, density: 2200, nebulaStrength: .62, resizeDelay: 800 });
+  createCosmosPainter($('#sky-cosmos'), { seed: 120819, density: 1100, nebulaStrength: 2.2, deferMs: 1200 });
 }
 
 let historyTimer;
 let historyLoadSerial = 0;
 let historyScheduledSelection = '';
-let historyLoadedSelection = '';
-let chronologySuppressClickUntil = 0;
 let chronologyTweenFrame = 0;
-let chronologyTweenActive = false;
 let chronologySettleTimer;
-let chronologyIgnoreScrollUntil = 0;
+let chronologyDrawFrame = 0;
 
 function stopChronologyTween() {
   if (chronologyTweenFrame) cancelAnimationFrame(chronologyTweenFrame);
-  chronologyTweenFrame = 0; chronologyTweenActive = false; chronologyIgnoreScrollUntil = 0; document.body.classList.remove('timeline-scrolling');
+  chronologyTweenFrame = 0; document.body.classList.remove('timeline-scrolling');
+}
+
+function clampTimelineOffset(value) {
+  const first = state.timelineMarkers?.[0]?.y ?? 0;
+  const last = state.timelineMarkers?.at(-1)?.y ?? first;
+  return Math.max(first, Math.min(last, Number(value) || 0));
+}
+
+function scheduleChronologyDraw() {
+  if (chronologyDrawFrame) return;
+  chronologyDrawFrame = requestAnimationFrame(() => { chronologyDrawFrame = 0; drawChronology(); });
+}
+
+function drawChronology() {
+  const canvas = $('#timeline-scale-canvas');
+  const container = $('#chronology');
+  const bounds = container.getBoundingClientRect();
+  const width = Math.max(1, Math.round(bounds.width));
+  const height = Math.max(1, Math.round(bounds.height));
+  const scale = Math.min(devicePixelRatio, 1.25);
+  if (canvas.width !== Math.round(width * scale) || canvas.height !== Math.round(height * scale)) {
+    canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(scale, 0, 0, scale, 0, 0); ctx.clearRect(0, 0, width, height);
+  const markers = state.timelineMarkers || [];
+  if (!markers.length) return;
+  const railX = width < 280 ? 106 : 120;
+  const centerY = height / 2;
+  const rail = ctx.createLinearGradient(0, 0, 0, height);
+  rail.addColorStop(0, 'rgba(177,211,226,.04)'); rail.addColorStop(.12, 'rgba(203,228,239,.58)'); rail.addColorStop(.88, 'rgba(203,228,239,.58)'); rail.addColorStop(1, 'rgba(177,211,226,.04)');
+  ctx.fillStyle = rail; ctx.fillRect(railX, 0, 1, height);
+  const lower = state.timelineOffset - centerY - 64;
+  const upper = state.timelineOffset + centerY + 64;
+  let low = 0; let high = markers.length;
+  while (low < high) { const middle = (low + high) >> 1; if (markers[middle].y < lower) low = middle + 1; else high = middle; }
+  const activeId = `${state.timelineSelection?.kind}:${state.timelineSelection?.key}`;
+  for (let index = low; index < markers.length; index += 1) {
+    const marker = markers[index]; if (marker.y > upper) break;
+    const y = centerY + marker.y - state.timelineOffset;
+    const active = `${marker.kind}:${marker.key}` === activeId;
+    ctx.save();
+    if (marker.kind === 'year') {
+      ctx.strokeStyle = active ? 'rgba(231,249,255,.92)' : 'rgba(175,205,218,.34)'; ctx.lineWidth = active ? 1.5 : 1;
+      ctx.beginPath(); ctx.moveTo(Math.max(10, railX - 38), y); ctx.lineTo(width - 12, y); ctx.stroke();
+      ctx.translate(railX, y); ctx.rotate(Math.PI / 4); ctx.fillStyle = '#071015'; ctx.strokeStyle = active ? '#e6f9ff' : 'rgba(183,215,228,.6)'; ctx.lineWidth = active ? 1.5 : 1; ctx.fillRect(-7,-7,14,14); ctx.strokeRect(-7,-7,14,14); ctx.rotate(-Math.PI / 4); ctx.translate(-railX, -y);
+      ctx.fillStyle = active ? '#f0f7fa' : '#c7d6dd'; ctx.font = '15px ui-monospace, monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(marker.key, railX - 25, y);
+    } else {
+      const length = active ? 68 : marker.monthStart ? 54 : marker.fifth ? 34 : 20;
+      ctx.strokeStyle = active ? '#e6f9ff' : marker.monthStart ? 'rgba(205,228,237,.8)' : marker.fifth ? 'rgba(175,207,219,.58)' : 'rgba(155,190,205,.4)';
+      ctx.lineWidth = active || marker.monthStart ? 1.5 : 1; ctx.beginPath(); ctx.moveTo(railX, y); ctx.lineTo(railX + length, y); ctx.stroke();
+      const labelX = railX + 66; const labelWidth = 58;
+      ctx.fillStyle = active ? 'rgba(9,21,27,.98)' : 'rgba(1,5,8,.8)'; ctx.strokeStyle = active ? 'rgba(188,229,246,.52)' : 'rgba(143,190,210,.12)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(labelX, y - 13, labelWidth, 26, 5); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = active ? '#edfaff' : '#b8cbd3'; ctx.font = '13px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(marker.shortLabel, labelX + labelWidth / 2, y + .5);
+    }
+    ctx.restore();
+  }
 }
 
 function centerChronologyMarker(marker, animated = true) {
-  const container = $('#chronology');
   clearTimeout(chronologySettleTimer);
-  const target = Math.round(Math.max(0, Math.min(container.scrollHeight - container.clientHeight, marker.y - container.clientHeight / 2)));
-  const start = container.scrollTop; const distance = target - start;
+  const target = clampTimelineOffset(marker.y);
+  const start = clampTimelineOffset(state.timelineOffset); const distance = target - start;
   stopChronologyTween();
-  if (!animated) { container.scrollTop = target; return; }
-  if (Math.abs(distance) < 3) return;
+  if (!animated || Math.abs(distance) < 1) { state.timelineOffset = target; scheduleChronologyDraw(); return; }
   document.body.classList.add('timeline-scrolling');
-  chronologyTweenActive = true;
-  const startedAt = performance.now(); const duration = Math.min(440, Math.max(190, Math.abs(distance) * .55));
+  const startedAt = performance.now(); const duration = Math.min(260, Math.max(140, Math.abs(distance) * .24));
   const step = (now) => {
     const progress = Math.min(1, (now - startedAt) / duration);
     const eased = 1 - (1 - progress) ** 3;
-    container.scrollTop = start + distance * eased;
+    state.timelineOffset = start + distance * eased; drawChronology();
     if (progress < 1) chronologyTweenFrame = requestAnimationFrame(step);
-    else { chronologyTweenFrame = 0; chronologyIgnoreScrollUntil = performance.now() + 300; container.scrollTop = target; chronologyTweenActive = false; document.body.classList.remove('timeline-scrolling'); }
+    else { chronologyTweenFrame = 0; state.timelineOffset = target; document.body.classList.remove('timeline-scrolling'); drawChronology(); }
   };
   chronologyTweenFrame = requestAnimationFrame(step);
 }
@@ -1125,16 +1172,10 @@ async function configureTimeline() {
 
 function renderChronology() {
   stopChronologyTween();
-  const container = $('#chronology');
-  const track = $('#chronology-track');
-  const ticks = $('#timeline-ticks');
   const currentYear = new Date().getFullYear();
   const dataYears = [...state.historyIndex.years.map(Number), ...state.historyIndex.days.map((key) => Number(key.slice(0, 4)))].filter(Number.isFinite);
   const minYear = dataYears.length ? Math.min(...dataYears) : currentYear;
   const maxYear = Math.max(currentYear, ...(dataYears.length ? dataYears : [currentYear]));
-  const viewportHeight = Math.max(1, container.clientHeight - 2);
-  const edge = Math.max(70, viewportHeight / 2);
-  ticks.replaceChildren();
   const markers = [];
   const daysByYear = new Map();
   state.historyIndex.days.forEach((key) => {
@@ -1143,7 +1184,7 @@ function renderChronology() {
     daysByYear.get(year).push(key);
   });
   daysByYear.forEach((keys) => keys.sort());
-  let cursorY = edge;
+  let cursorY = 0;
   const dayOffset = 76;
   const dayStep = 42;
   const yearTail = 96;
@@ -1151,11 +1192,7 @@ function renderChronology() {
 
   for (let year = minYear; year <= maxYear; year += 1) {
     const y = cursorY;
-    const marker = document.createElement('button');
-    marker.type = 'button'; marker.className = 'timeline-tick major'; marker.style.top = `${y}px`; marker.dataset.kind = 'year'; marker.dataset.key = String(year);
-    const line = document.createElement('i'); const label = document.createElement('span'); label.textContent = String(year);
-    marker.append(line, label); marker.addEventListener('click', () => { if (performance.now() >= chronologySuppressClickUntil) selectTimeline('year', String(year), true); });
-    ticks.append(marker); markers.push({ kind: 'year', key: String(year), y, node: marker });
+    markers.push({ kind: 'year', key: String(year), y });
     const yearDays = daysByYear.get(year) || [];
     let previousMonth = -1;
     yearDays.forEach((key, index) => {
@@ -1164,49 +1201,42 @@ function renderChronology() {
       const monthStart = date.getMonth() !== previousMonth;
       previousMonth = date.getMonth();
       const fifth = date.getDate() % 5 === 0;
-      const dayMarker = document.createElement('button');
-      dayMarker.type = 'button'; dayMarker.className = `timeline-tick minor${monthStart ? ' month-start' : ''}${fifth ? ' fifth' : ''}`; dayMarker.style.top = `${dayY}px`; dayMarker.dataset.kind = 'day'; dayMarker.dataset.key = key; dayMarker.title = displayDate(key);
-      dayMarker.dataset.shortLabel = `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
-      dayMarker.append(document.createElement('i')); dayMarker.addEventListener('click', () => { if (performance.now() >= chronologySuppressClickUntil) selectTimeline('day', key, true); });
-      ticks.append(dayMarker); markers.push({ kind: 'day', key, y: dayY, node: dayMarker });
+      const shortLabel = `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
+      markers.push({ kind: 'day', key, y: dayY, shortLabel, monthStart, fifth });
     });
     cursorY += yearDays.length ? dayOffset + Math.max(0, yearDays.length - 1) * dayStep + yearTail : emptyYearGap;
   }
 
-  const lastMarkerY = markers.at(-1)?.y ?? edge;
-  const height = Math.max(viewportHeight, lastMarkerY + edge);
-  track.style.height = `${height}px`;
-  track.style.setProperty('--rail-top', `${edge}px`);
-  track.style.setProperty('--rail-bottom', `${edge}px`);
-
   state.timelineMarkers = markers.sort((a, b) => a.y - b.y || (a.kind === 'year' ? -1 : 1));
   state.timelineMarkerMap = new Map(state.timelineMarkers.map((marker) => [`${marker.kind}:${marker.key}`, marker]));
+  state.timelineOffset = clampTimelineOffset(state.timelineOffset);
   $('#day-scale-legend').classList.toggle('hidden', state.historyIndex.days.length === 0);
-  container.classList.toggle('years-only', state.historyIndex.days.length === 0);
+  $('#chronology').classList.toggle('years-only', state.historyIndex.days.length === 0);
+  scheduleChronologyDraw();
   if (state.timelineSelection) updateTimelineCursor(false);
 }
 
-function nearestTimelineMarkerAtCenter() {
+function nearestTimelineMarker(value = state.timelineOffset) {
   const markers = state.timelineMarkers;
   if (!markers?.length) return;
-  const container = $('#chronology');
-  const contentY = container.scrollTop + container.clientHeight / 2;
   let low = 0; let high = markers.length - 1;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
-    if (markers[middle].y < contentY) low = middle + 1;
+    if (markers[middle].y < value) low = middle + 1;
     else high = middle;
   }
   const after = markers[low]; const before = markers[Math.max(0, low - 1)];
-  return Math.abs(before.y - contentY) <= Math.abs(after.y - contentY) ? before : after;
+  return Math.abs(before.y - value) <= Math.abs(after.y - value) ? before : after;
 }
+
+function nearestTimelineMarkerAtCenter() { return nearestTimelineMarker(state.timelineOffset); }
 
 function selectNearestTimelineMarker(nearest = nearestTimelineMarkerAtCenter()) {
   if (!nearest) return;
   if (state.timelineSelection?.kind === nearest.kind && state.timelineSelection?.key === nearest.key) return nearest;
   state.timelineSelection = { kind: nearest.kind, key: nearest.key };
   $('#timeline-date').textContent = nearest.kind === 'year' ? nearest.key : nearest.key.replaceAll('-', '.');
-  updateTimelineCursor(false);
+  scheduleChronologyDraw();
   return nearest;
 }
 
@@ -1226,9 +1256,12 @@ function updateTimelineCursor(center) {
   const selection = state.timelineSelection;
   const marker = state.timelineMarkerMap?.get(`${selection?.kind}:${selection?.key}`);
   if (!marker) return;
-  const previous = $('.timeline-tick.active');
-  if (previous !== marker.node) { previous?.classList.remove('active'); marker.node.classList.add('active'); }
+  scheduleChronologyDraw();
   if (center) centerChronologyMarker(marker, true);
+}
+
+function setupTimelineCanvas() {
+  new ResizeObserver(scheduleChronologyDraw).observe($('#chronology'));
 }
 
 async function loadHistoryRecord(kind, key) {
@@ -1238,7 +1271,6 @@ async function loadHistoryRecord(kind, key) {
   try {
     const record = await api.getRecord(kind, key);
     if (serial !== historyLoadSerial) return;
-    historyLoadedSelection = `${kind}:${key}`;
     const hasContent = record.blocks.some((block) => block.type !== 'paragraph' || block.text.trim() || block.voices?.length || block.images?.length);
     preview.replaceChildren();
     preview.classList.toggle('is-empty', !hasContent);
@@ -1344,7 +1376,7 @@ function setArchiveMode(mode) {
 }
 
 function showHistory() {
-  hideModal('history-gate'); $('#history').classList.remove('hidden'); $('#history').setAttribute('aria-hidden','false');
+  hideModal('history-gate'); document.body.classList.add('history-open'); $('#history').classList.remove('hidden'); $('#history').setAttribute('aria-hidden','false');
   dispatchEvent(new Event('resize'));
   setArchiveMode('records');
   configureTimeline().catch((error) => toast(t('historyReadFailed', { message: error.message })));
@@ -1352,7 +1384,7 @@ function showHistory() {
 function hideHistory() {
   if (state.exportBusy) { toast(state.language === 'zh' ? '导出进行中' : 'Export in progress'); return; }
   stopChronologyTween(); clearTimeout(chronologySettleTimer); clearTimeout(historyTimer); historyScheduledSelection = ''; historyLoadSerial += 1; document.body.classList.remove('timeline-dragging','timeline-scrolling');
-  $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); state.historyUnlocked = false; api.lockInner();
+  $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); document.body.classList.remove('history-open'); state.historyUnlocked = false; api.lockInner();
 }
 
 function applyAuthStatus(status) {
@@ -1497,25 +1529,17 @@ function bindEvents() {
     const nearest = nearestTimelineMarkerAtCenter();
     if (nearest) selectTimeline(nearest.kind, nearest.key, true, 240);
   };
-  $('#chronology').addEventListener('scroll', () => {
-    if (chronologyTweenActive || performance.now() < chronologyIgnoreScrollUntil) return;
+  $('#chronology').addEventListener('wheel', (event) => {
+    event.preventDefault(); stopChronologyTween(); clearTimeout(historyTimer); historyScheduledSelection = ''; clearTimeout(chronologySettleTimer);
     document.body.classList.add('timeline-scrolling');
-    const nearest = nearestTimelineMarkerAtCenter();
-    if (!nearest) return;
-    const contentY = $('#chronology').scrollTop + $('#chronology').clientHeight / 2;
-    const selectionId = `${nearest.kind}:${nearest.key}`;
-    const alreadyOwned = Math.abs(nearest.y - contentY) < 3 && (historyScheduledSelection === selectionId || historyLoadedSelection === selectionId);
-    if (alreadyOwned) { selectNearestTimelineMarker(nearest); document.body.classList.remove('timeline-scrolling'); return; }
-    clearTimeout(historyTimer); historyScheduledSelection = ''; selectNearestTimelineMarker(nearest);
-    if (!chronologyDrag) {
-      clearTimeout(chronologySettleTimer); chronologySettleTimer = setTimeout(() => { document.body.classList.remove('timeline-scrolling'); settleChronology(); }, 220);
-    }
-  }, { passive: true });
-  $('#chronology').addEventListener('wheel', stopChronologyTween, { passive: true });
+    state.timelineOffset = clampTimelineOffset(state.timelineOffset + event.deltaY * .82);
+    selectNearestTimelineMarker(); scheduleChronologyDraw();
+    chronologySettleTimer = setTimeout(() => { document.body.classList.remove('timeline-scrolling'); settleChronology(); }, 190);
+  }, { passive: false });
   $('#chronology').addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
     stopChronologyTween(); clearTimeout(historyTimer); historyScheduledSelection = ''; clearTimeout(chronologySettleTimer);
-    chronologyDrag = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: $('#chronology').scrollTop, moved: false };
+    chronologyDrag = { pointerId: event.pointerId, startY: event.clientY, startOffset: state.timelineOffset, latestY: event.clientY, moved: false };
     $('#chronology').setPointerCapture(event.pointerId); $('#chronology').classList.add('is-dragging'); document.body.classList.add('timeline-dragging','timeline-scrolling');
   });
   $('#chronology').addEventListener('pointermove', (event) => {
@@ -1526,17 +1550,25 @@ function bindEvents() {
     chronologyDrag.latestY = event.clientY;
     if (!chronologyDragFrame) chronologyDragFrame = requestAnimationFrame(() => {
       chronologyDragFrame = 0;
-      if (chronologyDrag) $('#chronology').scrollTop = chronologyDrag.startScrollTop - (chronologyDrag.latestY - chronologyDrag.startY);
+      if (!chronologyDrag) return;
+      state.timelineOffset = clampTimelineOffset(chronologyDrag.startOffset - (chronologyDrag.latestY - chronologyDrag.startY));
+      selectNearestTimelineMarker(); scheduleChronologyDraw();
     });
     event.preventDefault();
   });
   const finishChronologyDrag = (event) => {
     if (!chronologyDrag || (event.pointerId !== undefined && chronologyDrag.pointerId !== event.pointerId)) return;
     if (chronologyDragFrame) { cancelAnimationFrame(chronologyDragFrame); chronologyDragFrame = 0; }
-    if (chronologyDrag.moved && Number.isFinite(chronologyDrag.latestY)) $('#chronology').scrollTop = chronologyDrag.startScrollTop - (chronologyDrag.latestY - chronologyDrag.startY);
-    const moved = chronologyDrag.moved; chronologyDrag = null; $('#chronology').classList.remove('is-dragging'); document.body.classList.remove('timeline-dragging');
-    if (moved) chronologySuppressClickUntil = performance.now() + 260;
-    settleChronology();
+    const drag = chronologyDrag;
+    if (drag.moved) state.timelineOffset = clampTimelineOffset(drag.startOffset - (drag.latestY - drag.startY));
+    chronologyDrag = null; $('#chronology').classList.remove('is-dragging'); document.body.classList.remove('timeline-dragging','timeline-scrolling');
+    if (drag.moved) settleChronology();
+    else {
+      const bounds = $('#chronology').getBoundingClientRect();
+      const clickedValue = state.timelineOffset + event.clientY - (bounds.top + bounds.height / 2);
+      const clicked = nearestTimelineMarker(clickedValue);
+      if (clicked) selectTimeline(clicked.kind, clicked.key, true, 240);
+    }
   };
   $('#chronology').addEventListener('pointerup', finishChronologyDrag);
   $('#chronology').addEventListener('pointercancel', finishChronologyDrag);
@@ -1568,4 +1600,4 @@ function bindEvents() {
 }
 
 api.onExportProgress(updateExportProgress);
-setupCosmos(); setupEarth(); bindEvents(); applyLanguage(); initializeAuth().catch((error) => { $('#auth-error').textContent = `${state.language === 'zh' ? '初始化失败' : 'Initialization failed'}: ${error.message}`; });
+setupCosmos(); setupTimelineCanvas(); setupEarth(); bindEvents(); applyLanguage(); initializeAuth().catch((error) => { $('#auth-error').textContent = `${state.language === 'zh' ? '初始化失败' : 'Initialization failed'}: ${error.message}`; });

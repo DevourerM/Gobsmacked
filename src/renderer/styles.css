@@ -455,3 +455,17 @@ button, .glass, .calendar-day, .inline-media-token, .library-row { transition-pr
 body.timeline-dragging .timeline-tick, body.timeline-scrolling .timeline-tick,
 body.timeline-dragging .timeline-tick::before, body.timeline-scrolling .timeline-tick::before { transition: none !important; }
 body.timeline-dragging .chronology-shell .timeline-cursor, body.timeline-scrolling .chronology-shell .timeline-cursor { box-shadow: 0 0 6px rgba(150,224,252,.45); }
+
+/* Static, computed cosmos on the identity screen: rich depth without a render loop. */
+.auth-screen { isolation: isolate; overflow: hidden; background: radial-gradient(ellipse at 50% 48%, transparent 0 18%, rgba(0,2,9,.2) 55%, rgba(0,0,4,.7) 100%); }
+.auth-screen::before { content: ""; position: absolute; z-index: 0; inset: -12%; pointer-events: none; background: radial-gradient(ellipse at 18% 74%, rgba(70,52,153,.17), transparent 31%), radial-gradient(ellipse at 82% 22%, rgba(27,104,151,.15), transparent 30%), radial-gradient(ellipse at 62% 72%, rgba(126,44,105,.1), transparent 25%), linear-gradient(146deg, transparent 24%, rgba(94,107,185,.055) 41%, rgba(80,143,172,.08) 49%, rgba(103,53,137,.05) 57%, transparent 72%); }
+.auth-card, .auth-orbit, .auth-language { z-index: 1; }
+.auth-orbit { animation: none; transform: rotate(-12deg); border-color: rgba(136,205,235,.1); box-shadow: 0 0 90px rgba(55,103,165,.045), inset 0 0 100px rgba(60,117,170,.035); }
+
+/* Virtual micrometer scale: one canvas replaces hundreds of moving DOM nodes. */
+.chronology-shell .chronology { position: relative; overflow: hidden; touch-action: none; mask-image: none; scrollbar-width: none; will-change: auto; contain: strict; }
+.chronology-shell .chronology::-webkit-scrollbar { display: none; }
+.timeline-scale-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; }
+.chronology-shell::before, .chronology-shell::after { right: 0; }
+body.timeline-dragging .chronology-shell .chronology { cursor: grabbing; }
+body.history-open .app, body.history-open .sky { visibility: hidden; }
