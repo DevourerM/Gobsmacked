@@ -9,7 +9,7 @@ const messages = {
     calendar: '日历',
     addTag: '＋ 添加标签', addContent: '添加内容', textBlock: '¶ 文本', image: '▧ 图片', recordAudio: '● 录音', environment: '环境', currentLocation: '当前位置', clear: '清除',
     noLocation: '尚未记录地点', setLocation: '设置地点', todaySummary: '今日概览', textCount: '文字数', mediaCount: '媒体数',
-    protectedArchive: '独立保护', verifyPast: '验证访问', verify: '验证', setupHistoryAccess: '设置历史密钥', saveAndEnter: '保存并进入', historySecret: '历史密钥', archive: '历史', archiveReview: '历史记录', importLegacy: '导入旧记录', exportVault: '导出记录', returnPresent: '返回今天', recordArchive: '记录', fileArchive: '资料',
+    protectedArchive: '独立保护', verifyPast: '验证访问', verify: '验证', setupHistoryAccess: '设置历史密钥', saveAndEnter: '保存并进入', historySecret: '历史密钥', archive: '历史', archiveReview: '历史记录', importLegacy: '导入旧记录', exportContent: '导出内容', exportMigration: '迁移备份', returnPresent: '返回今天', recordArchive: '记录', fileArchive: '资料',
     chronology: '时间轴', yearScale: '年份', dayScale: '记录日', dragChronology: '滚动或拖动刻度', filterFiles: '筛选当前目录', importFiles: '导入文件', importFolder: '导入文件夹', openFile: '打开', extractFile: '提取', libraryEmpty: '当前目录为空', sealedArchive: '加密档案', voiceRecord: '录音', recording: '正在录音', recordingActive: '正在录音', stopRecording: '停止', insertRecording: '插入标签',
     voiceLabel: '录音标签', voiceLabelPlaceholder: '例如：雨声', imageLabel: '图片标签', imageLabelPlaceholder: '例如：星空', insertImageTag: '插入标签', previewRecording: '试听录音', play: '播放', pause: '暂停',
     calendarMark: '日期标注', markContent: '标注内容', markPlaceholder: '纪念日、约定或事件', displayScope: '显示范围', once: '仅此日期', onceDesc: '只在这一年的这一天显示', annual: '每年重复', annualDesc: '每年的同一日期显示', saveMark: '保存标注', place: '地点', placePlaceholder: '地点名称或地址', saveAddress: '保存', locateSave: '定位',
@@ -26,7 +26,7 @@ const messages = {
     calendar: 'CALENDAR',
     addTag: '+ Add tag', addContent: 'Add content', textBlock: '¶ Text', image: '▧ Image', recordAudio: '● Record', environment: 'ENVIRONMENT', currentLocation: 'Current Place', clear: 'Clear',
     noLocation: 'No place recorded', setLocation: 'Set Place', todaySummary: 'TODAY', textCount: 'Characters', mediaCount: 'Media',
-    protectedArchive: 'SEPARATE ACCESS', verifyPast: 'Verify Access', verify: 'Verify', setupHistoryAccess: 'Set History Passkey', saveAndEnter: 'Save and Enter', historySecret: 'History passkey', archive: 'ARCHIVE', archiveReview: 'Past Records', importLegacy: 'Import Records', exportVault: 'Export Records', returnPresent: 'Return to Present', recordArchive: 'Records', fileArchive: 'Files',
+    protectedArchive: 'SEPARATE ACCESS', verifyPast: 'Verify Access', verify: 'Verify', setupHistoryAccess: 'Set History Passkey', saveAndEnter: 'Save and Enter', historySecret: 'History passkey', archive: 'ARCHIVE', archiveReview: 'Past Records', importLegacy: 'Import Records', exportContent: 'Export Content', exportMigration: 'Migration Copy', returnPresent: 'Return to Present', recordArchive: 'Records', fileArchive: 'Files',
     chronology: 'TIMELINE', yearScale: 'Years', dayScale: 'Recorded days', dragChronology: 'Scroll or drag the scale', filterFiles: 'Filter this folder', importFiles: 'Import Files', importFolder: 'Import Folder', openFile: 'Open', extractFile: 'Extract', libraryEmpty: 'This folder is empty', sealedArchive: 'Encrypted Archive', voiceRecord: 'RECORDING', recording: 'Recording', recordingActive: 'Recording', stopRecording: 'Stop', insertRecording: 'Insert Tag',
     voiceLabel: 'Recording label', voiceLabelPlaceholder: 'For example: Rain', imageLabel: 'Image label', imageLabelPlaceholder: 'For example: Night sky', insertImageTag: 'Insert Tag', previewRecording: 'Preview recording', play: 'Play', pause: 'Pause',
     calendarMark: 'DATE MARK', markContent: 'Description', markPlaceholder: 'Anniversary, appointment, or event', displayScope: 'Display scope', once: 'This date only', onceDesc: 'Show only on this date in this year', annual: 'Repeat yearly', annualDesc: 'Show on the same date every year', saveMark: 'Save Mark', place: 'Place', placePlaceholder: 'Place or address', saveAddress: 'Save', locateSave: 'Locate',
@@ -82,10 +82,7 @@ const state = {
   innerConfigured: false,
   deviceTrusted: false,
   skyRevealed: false,
-  skyWheelIntent: 0,
-  skyWheelLastAt: 0,
-  skyWheelNeedsNewGesture: false,
-  skyWheelGestureActive: false
+  exportBusy: false
 };
 
 function t(key, variables = {}) {
@@ -319,59 +316,69 @@ function openFullImage(source, label = '') {
 
 function setSkyRevealed(revealed) {
   state.skyRevealed = Boolean(revealed);
-  state.skyWheelIntent = 0;
-  state.skyWheelLastAt = 0;
-  state.skyWheelNeedsNewGesture = false;
-  state.skyWheelGestureActive = false;
+  document.body.style.setProperty('--sky-progress', state.skyRevealed ? '1' : '0');
   document.body.classList.toggle('sky-revealed', state.skyRevealed);
   $('#sky').setAttribute('aria-hidden', state.skyRevealed ? 'false' : 'true');
   if (state.skyRevealed) dispatchEvent(new Event('resize'));
 }
 
-function handleSkyWheel(event) {
+let skyDrag = null;
+
+function beginSkyDrag(event, opening) {
   if ($('#app').classList.contains('hidden') || !$('#history').classList.contains('hidden')) return;
   if ($('.overlay:not(.hidden), .image-modal:not(.hidden)')) return;
-  if (!state.skyRevealed && event.deltaY > 0) {
-    const scroller = event.target.closest?.('.editor-blocks');
-    if (scroller) {
-      const now = performance.now();
-      const canContinueDiary = scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 3;
-      if (canContinueDiary) {
-        state.skyWheelIntent = 0;
-        state.skyWheelNeedsNewGesture = true;
-        state.skyWheelGestureActive = false;
-        state.skyWheelLastAt = now;
-        return;
-      }
-      if (state.skyWheelGestureActive) {
-        state.skyWheelLastAt = now;
-      } else if (!state.skyWheelNeedsNewGesture) {
-        state.skyWheelIntent = 0;
-        state.skyWheelNeedsNewGesture = true;
-        state.skyWheelLastAt = now;
-        return;
-      } else if (now - state.skyWheelLastAt < 280) {
-        state.skyWheelLastAt = now;
-        return;
-      } else {
-        state.skyWheelNeedsNewGesture = false;
-        state.skyWheelGestureActive = true;
-        state.skyWheelIntent = 0;
-        state.skyWheelLastAt = now;
-      }
-    } else {
-      state.skyWheelNeedsNewGesture = false;
-      state.skyWheelGestureActive = false;
-    }
-  }
-  if ((!state.skyRevealed && event.deltaY <= 0) || (state.skyRevealed && event.deltaY >= 0)) {
-    state.skyWheelIntent = 0;
-    state.skyWheelGestureActive = false;
-    return;
-  }
-  state.skyWheelIntent += event.deltaY;
-  if ((!state.skyRevealed && state.skyWheelIntent > 120) || (state.skyRevealed && state.skyWheelIntent < -90)) {
-    event.preventDefault(); setSkyRevealed(!state.skyRevealed);
+  if (!opening && event.target.closest('button, .star-node')) return;
+  skyDrag = { pointerId: event.pointerId, startY: event.clientY, opening, progress: opening ? 0 : 1 };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  document.body.classList.add('sky-dragging');
+  event.preventDefault();
+}
+
+function moveSkyDrag(event) {
+  if (!skyDrag || event.pointerId !== skyDrag.pointerId) return;
+  const delta = event.clientY - skyDrag.startY;
+  const progress = skyDrag.opening ? delta / 260 : 1 + delta / 260;
+  skyDrag.progress = Math.max(0, Math.min(1, progress));
+  document.body.style.setProperty('--sky-progress', String(skyDrag.progress));
+  event.preventDefault();
+}
+
+function finishSkyDrag(event) {
+  if (!skyDrag || (event.pointerId !== undefined && event.pointerId !== skyDrag.pointerId)) return;
+  const reveal = skyDrag.opening ? skyDrag.progress >= .3 : skyDrag.progress >= .7;
+  skyDrag = null; document.body.classList.remove('sky-dragging'); setSkyRevealed(reveal);
+}
+
+function updateExportProgress(value = {}) {
+  const panel = $('#export-progress');
+  const labels = state.language === 'zh'
+    ? { records: '导出记录', files: '解密资料', system: '复制系统', archive: '复制档案', userData: '复制记录', finishing: '完成校验', done: '已完成' }
+    : { records: 'Exporting records', files: 'Decrypting files', system: 'Copying system', archive: 'Copying archive', userData: 'Copying records', finishing: 'Finalizing', done: 'Complete' };
+  const percent = Math.max(0, Math.min(100, Number(value.percent || 0)));
+  panel.classList.remove('hidden');
+  $('#export-progress-label').textContent = labels[value.stage] || value.stage || '';
+  $('#export-progress-bar').style.width = `${percent}%`;
+  $('#export-progress-percent').textContent = `${percent.toFixed(1)}%`;
+  panel.classList.toggle('complete', value.stage === 'done');
+}
+
+async function runHistoryExport(type) {
+  if (state.exportBusy || !state.historyUnlocked) return;
+  state.exportBusy = true;
+  $('#history').classList.add('exporting');
+  const buttons = [$('#export-content'), $('#export-migration')]; buttons.forEach((button) => { button.disabled = true; });
+  updateExportProgress({ stage: type === 'content' ? 'records' : 'system', percent: 0 });
+  try {
+    const result = type === 'content' ? await api.exportContent() : await api.exportMigration();
+    if (!result) { $('#export-progress').classList.add('hidden'); return; }
+    updateExportProgress({ stage: 'done', percent: 100 });
+    toast(state.language === 'zh' ? `已导出到 ${result.path}` : `Exported to ${result.path}`);
+    setTimeout(() => $('#export-progress').classList.add('hidden'), 2200);
+  } catch (error) {
+    $('#export-progress').classList.add('hidden');
+    toast(`${state.language === 'zh' ? '导出失败' : 'Export failed'}: ${error.message}`);
+  } finally {
+    state.exportBusy = false; $('#history').classList.remove('exporting'); buttons.forEach((button) => { button.disabled = false; });
   }
 }
 
@@ -1255,7 +1262,7 @@ function setArchiveMode(mode) {
   $('#library-view').classList.toggle('hidden', !library);
   $('#archive-records-mode').classList.toggle('active', !library); $('#archive-records-mode').ariaSelected = String(!library);
   $('#archive-library-mode').classList.toggle('active', library); $('#archive-library-mode').ariaSelected = String(library);
-  $('#import-legacy').classList.toggle('hidden', library); $('#export-vault').classList.toggle('hidden', library);
+  $('#import-legacy').classList.toggle('hidden', library);
   if (library) loadLibrary(state.libraryPath, state.libraryQuery);
   else { renderChronology(); if (state.timelineSelection) updateTimelineCursor(true); }
 }
@@ -1266,7 +1273,10 @@ function showHistory() {
   setArchiveMode('records');
   configureTimeline().catch((error) => toast(t('historyReadFailed', { message: error.message })));
 }
-function hideHistory() { $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); state.historyUnlocked = false; api.lockInner(); }
+function hideHistory() {
+  if (state.exportBusy) { toast(state.language === 'zh' ? '导出进行中' : 'Export in progress'); return; }
+  $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); state.historyUnlocked = false; api.lockInner();
+}
 
 function applyAuthStatus(status) {
   state.innerConfigured = Boolean(status.innerConfigured);
@@ -1381,7 +1391,11 @@ function bindEvents() {
     finally { button.disabled = false; button.textContent = originalText; }
   });
   $('#clear-location').addEventListener('click', () => { if (!state.record) return; state.record.location = null; renderLocation(); markDirty(); });
-  addEventListener('wheel', handleSkyWheel, { passive: false });
+  $('#sky-pull-handle').addEventListener('pointerdown', (event) => beginSkyDrag(event, true));
+  $('#sky').addEventListener('pointerdown', (event) => beginSkyDrag(event, false));
+  addEventListener('pointermove', moveSkyDrag, { passive: false });
+  addEventListener('pointerup', finishSkyDrag);
+  addEventListener('pointercancel', finishSkyDrag);
   $('#close-sky').addEventListener('click', () => setSkyRevealed(false));
   $('#history-button').addEventListener('click', () => { $('#inner-secret').value = ''; $('#inner-error').textContent = ''; configureHistoryGate(); showModal('history-gate'); setTimeout(() => $('#inner-secret').focus(),50); });
   $('#inner-auth-form').addEventListener('submit', async (event) => {
@@ -1417,7 +1431,8 @@ function bindEvents() {
   $('#library-import-folder').addEventListener('click', async () => { try { const result = await api.importLibraryFolder(state.libraryPath); if (result) { toast(state.language === 'zh' ? '文件夹已导入' : 'Folder imported'); await loadLibrary(state.libraryPath, state.libraryQuery); } } catch (error) { toast(error.message); } });
   $('#library-open').addEventListener('click', async () => { if (!state.librarySelected) return; try { if (state.librarySelected.directory) await loadLibrary(state.librarySelected.relative, ''); else await api.openLibraryItem(state.librarySelected.relative); } catch (error) { toast(error.message); } });
   $('#library-export').addEventListener('click', async () => { if (!state.librarySelected) return; const button = $('#library-export'); button.disabled = true; try { const result = await api.exportLibraryItem(state.librarySelected.relative); if (result) toast(state.language === 'zh' ? `已提取到 ${result.path}` : `Extracted to ${result.path}`); } catch (error) { toast(error.message); } finally { button.disabled = false; } });
-  $('#export-vault').addEventListener('click', async () => { if (!state.historyUnlocked) return; try { const result = await api.exportVault(); if (result) toast(state.language === 'zh' ? `已导出 ${result.fileCount} 个资料文件` : `${result.fileCount} archive files exported`); } catch (error) { toast(`${state.language === 'zh' ? '导出失败' : 'Export failed'}: ${error.message}`); } });
+  $('#export-content').addEventListener('click', () => runHistoryExport('content'));
+  $('#export-migration').addEventListener('click', () => runHistoryExport('migration'));
   $('#import-legacy').addEventListener('click', async () => { if (!state.historyUnlocked) return; try { const selection = await api.selectLegacyDiary(); if (!selection) return; if (!selection.count) { toast(state.language === 'zh' ? '没有识别到有效日记段落' : 'No valid diary entries were found'); return; } const sample = selection.sample.map((item) => item.date).join('、'); if (!confirm(state.language === 'zh' ? `识别到 ${selection.year} 年的 ${selection.count} 篇记录（如 ${sample}）。\n\n导入不会覆盖已有日期。是否继续？` : `${selection.count} records from ${selection.year} were found (for example ${sample}).\n\nExisting dates will not be overwritten. Continue?`)) return; const result = await api.importLegacyEntries(selection.entries); toast(state.language === 'zh' ? `导入完成：新增 ${result.imported} 篇，跳过 ${result.skipped} 篇` : `Import complete: ${result.imported} added, ${result.skipped} skipped`); await refreshCalendarData(); await configureTimeline(); } catch (error) { toast(`${state.language === 'zh' ? '导入失败' : 'Import failed'}: ${error.message}`); } });
   $$('[data-close]').forEach((button) => button.addEventListener('click', () => hideModal(button.dataset.close)));
   $('#image-modal').addEventListener('click', (event) => { if (event.target.id === 'image-modal') hideModal('image-modal'); });
@@ -1430,4 +1445,5 @@ function bindEvents() {
   addEventListener('beforeunload', () => { if (state.dirty) saveCurrent(); });
 }
 
+api.onExportProgress(updateExportProgress);
 setupCosmos(); setupEarth(); bindEvents(); applyLanguage(); initializeAuth().catch((error) => { $('#auth-error').textContent = `${state.language === 'zh' ? '初始化失败' : 'Initialization failed'}: ${error.message}`; });

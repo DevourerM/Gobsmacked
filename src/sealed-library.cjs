@@ -210,7 +210,7 @@ async function encryptFile(source, root, key) {
   }
 }
 
-async function decryptObject(root, objectId, destination, key, expected = {}) {
+async function decryptObject(root, objectId, destination, key, expected = {}, onProgress = null) {
   assertKey(key);
   if (!/^[a-f0-9]{64}\.gse$/.test(String(objectId))) throw new Error('密文对象编号无效');
   const source = path.join(root, 'objects', objectId);
@@ -226,14 +226,14 @@ async function decryptObject(root, objectId, destination, key, expected = {}) {
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, header.subarray(MAGIC.length));
   decipher.setAAD(OBJECT_AAD); decipher.setAuthTag(tag);
   const hash = crypto.createHash('sha256'); let size = 0;
-  const meter = new Transform({ transform(chunk, _encoding, callback) { hash.update(chunk); size += chunk.length; callback(null, chunk); } });
+  const meter = new Transform({ transform(chunk, _encoding, callback) { hash.update(chunk); size += chunk.length; onProgress?.(chunk.length); callback(null, chunk); } });
   const temporary = destination ? `${destination}.${process.pid}.${Date.now()}.tmp` : null;
   if (temporary) await fsp.mkdir(path.dirname(destination), { recursive: true });
   try {
     const ciphertextBytes = stat.size - HEADER_BYTES - TAG_BYTES;
     if (ciphertextBytes === 0) {
       const final = decipher.final();
-      if (final.length) { hash.update(final); size += final.length; }
+      if (final.length) { hash.update(final); size += final.length; onProgress?.(final.length); }
       if (temporary) await fsp.writeFile(temporary, final, { flag: 'wx' });
     } else {
       const sink = temporary

@@ -20,7 +20,9 @@ test('封存资料使用密文对象并可完整解密', async (context) => {
   const encrypted = await encryptFile(source, path.join(root, 'archive'), key);
   const raw = await fs.readFile(path.join(root, 'archive', 'objects', encrypted.objectId));
   assert.equal(raw.includes(Buffer.from('不能从密文直接读取的内容')), false);
-  await decryptObject(path.join(root, 'archive'), encrypted.objectId, restored, key, encrypted);
+  let progressed = 0;
+  await decryptObject(path.join(root, 'archive'), encrypted.objectId, restored, key, encrypted, (bytes) => { progressed += bytes; });
+  assert.equal(progressed, encrypted.size);
   assert.equal(await fs.readFile(restored, 'utf8'), '不能从密文直接读取的内容');
 });
 

@@ -28,6 +28,7 @@
   </section>
 
   <div id="app" class="app hidden">
+    <div id="sky-pull-handle" class="sky-pull-handle" aria-label="向下拖拽打开天幕"><i></i></div>
     <header class="topbar glass">
       <div class="brand"><span class="brand-star">✦</span><div><strong>Gobsmacked</strong><small data-i18n="archiveSubtitle">LIFE ARCHIVE</small></div></div>
       <div class="mode-switch" role="group" aria-label="记录类型">
@@ -103,7 +104,8 @@
 
   <section id="history" class="history hidden" aria-hidden="true">
     <canvas id="history-cosmos" class="history-cosmos" aria-hidden="true"></canvas>
-    <header class="history-header glass"><div><p class="eyebrow" data-i18n="archive">档案</p><h1 data-i18n="archiveReview">历史记录</h1></div><div class="archive-view-switch" role="tablist"><button id="archive-records-mode" class="active" type="button" role="tab" aria-selected="true" data-i18n="recordArchive">记录</button><button id="archive-library-mode" type="button" role="tab" aria-selected="false" data-i18n="fileArchive">资料</button></div><div class="top-actions history-actions"><button class="language-toggle" type="button">EN</button><button id="import-legacy" class="secondary" data-i18n="importLegacy">导入旧记录</button><button id="export-vault" class="secondary" data-i18n="exportVault">导出记录</button><button id="close-history" class="ghost" data-i18n="returnPresent">返回今天</button></div></header>
+    <header class="history-header glass"><div><p class="eyebrow" data-i18n="archive">档案</p><h1 data-i18n="archiveReview">历史记录</h1></div><div class="archive-view-switch" role="tablist"><button id="archive-records-mode" class="active" type="button" role="tab" aria-selected="true" data-i18n="recordArchive">记录</button><button id="archive-library-mode" type="button" role="tab" aria-selected="false" data-i18n="fileArchive">资料</button></div><div class="top-actions history-actions"><button class="language-toggle" type="button">EN</button><button id="import-legacy" class="secondary" data-i18n="importLegacy">导入旧记录</button><button id="export-content" class="secondary" data-i18n="exportContent">导出内容</button><button id="export-migration" class="secondary" data-i18n="exportMigration">迁移备份</button><button id="close-history" class="ghost" data-i18n="returnPresent">返回今天</button></div></header>
+    <div id="export-progress" class="export-progress hidden" role="status"><span id="export-progress-label"></span><i><b id="export-progress-bar"></b></i><em id="export-progress-percent">0%</em></div>
     <main class="history-main">
       <div id="history-records-view" class="history-records-view">
         <section class="glass timeline-panel">

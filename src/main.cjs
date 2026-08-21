@@ -4,8 +4,9 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const crypto = require('node:crypto');
 const os = require('node:os');
+const { Transform } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const { pathToFileURL } = require('node:url');
-const archiver = require('archiver');
 const topojson = require('topojson-client');
 const worldTopology = require('world-atlas/countries-110m.json');
 const {
@@ -24,6 +25,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow;
+let programRoot;
+let installationRoot;
+let userDataRoot;
 let vaultRoot;
 let libraryRoot;
 let archiveKeyFile;
@@ -40,6 +44,7 @@ let geocodeQueue = Promise.resolve();
 let lastGeocodeAt = 0;
 let librarySummaryCache = null;
 let libraryQueue = Promise.resolve();
+let exportInProgress = false;
 const earthOutlines = {
   land: topojson.mesh(worldTopology, worldTopology.objects.land).coordinates,
   countries: topojson.mesh(worldTopology, worldTopology.objects.countries, (a, b) => a !== b).coordinates
@@ -85,8 +90,10 @@ function defaultConstellation() {
 }
 
 async function initializeVault() {
-  vaultRoot = path.join(app.getPath('userData'), 'vault');
-  const programRoot = app.isPackaged ? path.dirname(process.execPath) : path.resolve(__dirname, '..');
+  userDataRoot = app.getPath('userData');
+  vaultRoot = path.join(userDataRoot, 'vault');
+  programRoot = app.isPackaged ? path.dirname(process.execPath) : path.resolve(__dirname, '..');
+  installationRoot = path.dirname(programRoot);
   libraryRoot = path.resolve(process.env.GOBSMACKED_ARCHIVE_ROOT || path.join(path.dirname(programRoot), 'Archive'));
   archiveKeyFile = path.join(app.getPath('userData'), 'sealed-archive-key.bin');
   libraryTempRoot = path.join(app.getPath('temp'), `Gobsmacked-Sealed-${process.pid}`);
@@ -107,6 +114,98 @@ async function initializeVault() {
       createdAt: new Date().toISOString(), appVersion: app.getVersion()
     });
   }
+}
+
+function exportStamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function pathInside(parent, candidate) {
+  const normalize = (value) => process.platform === 'win32' ? path.resolve(value).toLocaleLowerCase('en-US') : path.resolve(value);
+  const root = normalize(parent); const target = normalize(candidate);
+  return target === root || target.startsWith(`${root}${path.sep}`);
+}
+
+function assertExportDestination(destination) {
+  const target = path.resolve(destination);
+  for (const protectedRoot of [installationRoot, userDataRoot]) {
+    if (pathInside(protectedRoot, target)) throw new Error('导出位置不能位于当前系统或用户数据目录内');
+  }
+}
+
+async function inventoryTree(root, filter = () => true, relative = '') {
+  const output = [];
+  const entries = await fsp.readdir(path.join(root, relative), { withFileTypes: true });
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))) {
+    const childRelative = relative ? path.join(relative, entry.name) : entry.name;
+    if (!filter(childRelative, entry)) continue;
+    const absolute = path.join(root, childRelative);
+    if (entry.isDirectory()) {
+      output.push({ absolute, relative: childRelative, type: 'directory', size: 0 });
+      output.push(...await inventoryTree(root, filter, childRelative));
+    } else if (entry.isFile()) {
+      const stat = await fsp.stat(absolute);
+      output.push({ absolute, relative: childRelative, type: 'file', size: stat.size, modifiedAt: stat.mtime });
+    }
+  }
+  return output;
+}
+
+function createProgressReporter(type, stage, totalBytes, totalFiles) {
+  let bytes = 0; let files = 0; let lastSent = 0; let currentStage = stage;
+  const send = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastSent < 90) return;
+    lastSent = now;
+    mainWindow?.webContents.send('export:progress', {
+      type, stage: currentStage, bytes, totalBytes, files, totalFiles,
+      percent: totalBytes ? Math.min(100, Number((bytes / totalBytes * 100).toFixed(2))) : (files >= totalFiles ? 100 : 0)
+    });
+  };
+  send(true);
+  return {
+    setStage(value) { currentStage = value; send(true); },
+    addBytes(value) { bytes += Number(value || 0); send(false); },
+    fileDone() { files += 1; send(true); },
+    finish() { bytes = totalBytes; files = totalFiles; send(true); }
+  };
+}
+
+async function copyFileStreaming(source, destination, progress) {
+  await fsp.mkdir(path.dirname(destination), { recursive: true });
+  const meter = new Transform({ transform(chunk, _encoding, callback) { progress.addBytes(chunk.length); callback(null, chunk); } });
+  await pipeline(fs.createReadStream(source), meter, fs.createWriteStream(destination, { flags: 'wx' }));
+  const stat = await fsp.stat(source);
+  await fsp.utimes(destination, stat.atime, stat.mtime).catch(() => undefined);
+  progress.fileDone();
+}
+
+async function copyInventory(entries, destinationRoot, progress) {
+  for (const entry of entries.filter((item) => item.type === 'directory')) {
+    await fsp.mkdir(path.join(destinationRoot, entry.relative), { recursive: true });
+  }
+  for (const entry of entries.filter((item) => item.type === 'file')) {
+    await copyFileStreaming(entry.absolute, path.join(destinationRoot, entry.relative), progress);
+  }
+}
+
+async function exportTarget(parent, requestedName) {
+  const target = await uniqueChildPath(parent, requestedName);
+  const pending = `${target}.partial`;
+  if (fs.existsSync(pending)) throw new Error('导出临时目录已存在');
+  return { target, pending };
+}
+
+async function finishExport(pending, target) {
+  if (path.dirname(pending) !== path.dirname(target) || pending !== `${target}.partial`) throw new Error('导出临时路径校验失败');
+  await fsp.rename(pending, target);
+}
+
+async function withExportLock(task) {
+  if (exportInProgress) throw new Error('已有导出任务正在进行');
+  exportInProgress = true;
+  try { return await task(); }
+  finally { exportInProgress = false; }
 }
 
 async function uniqueChildPath(parent, requestedName) {
@@ -361,6 +460,7 @@ function registerIpc() {
     return { trusted: false };
   });
   ipcMain.handle('auth:lockInner', async () => {
+    if (exportInProgress) throw new Error('导出进行中，暂不能退出历史层');
     innerUnlocked = false;
     lockArchiveKey();
     await fsp.rm(libraryTempRoot, { recursive: true, force: true }).catch(() => undefined);
@@ -684,46 +784,87 @@ function registerIpc() {
     return { path: target, directory: entry.type === 'directory' };
   });
 
-  ipcMain.handle('vault:export', async () => {
+  ipcMain.handle('export:content', async () => withExportLock(async () => {
     requireInner();
-    const picked = await dialog.showSaveDialog(mainWindow, {
-      title: '导出 Gobsmacked 资料库',
-      defaultPath: `Gobsmacked-Vault-${new Date().toISOString().slice(0, 10)}.zip`,
-      filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }]
-    });
-    if (picked.canceled || !picked.filePath) return null;
-    const checksums = {};
-    async function walk(dir, prefix = '') {
-      const result = [];
-      for (const entry of await fsp.readdir(dir, { withFileTypes: true })) {
-        const absolute = path.join(dir, entry.name);
-        const relative = path.posix.join(prefix, entry.name);
-        if (entry.isDirectory()) result.push(...await walk(absolute, relative));
-        else result.push({ absolute, relative });
+    const picked = await dialog.showOpenDialog(mainWindow, { title: '选择内容导出位置', properties: ['openDirectory', 'createDirectory'] });
+    if (picked.canceled || !picked.filePaths[0]) return null;
+    const parent = path.resolve(picked.filePaths[0]); assertExportDestination(parent);
+    const { target, pending } = await exportTarget(parent, `Gobsmacked-Content-${exportStamp()}`);
+    const manifest = await getLibraryManifest(); const key = await getArchiveKey();
+    const vaultEntries = await inventoryTree(vaultRoot);
+    const libraryFiles = manifest.entries.filter((entry) => entry.type === 'file');
+    const totalBytes = vaultEntries.reduce((sum, entry) => sum + entry.size, 0) + libraryFiles.reduce((sum, entry) => sum + Number(entry.size || 0), 0);
+    const totalFiles = vaultEntries.filter((entry) => entry.type === 'file').length + libraryFiles.length;
+    const progress = createProgressReporter('content', 'records', totalBytes, totalFiles);
+    try {
+      await fsp.mkdir(pending, { recursive: false });
+      await copyInventory(vaultEntries, path.join(pending, 'Records'), progress);
+      progress.setStage('files');
+      const filesRoot = path.join(pending, 'Files');
+      for (const entry of manifest.entries.filter((item) => item.type === 'directory')) {
+        await fsp.mkdir(path.join(filesRoot, ...entry.path.split('/')), { recursive: true });
       }
-      return result;
+      for (const entry of libraryFiles) {
+        const destination = path.join(filesRoot, ...entry.path.split('/'));
+        await decryptObject(libraryRoot, entry.objectId, destination, key, entry, (bytes) => progress.addBytes(bytes));
+        await fsp.utimes(destination, new Date(entry.modifiedAt), new Date(entry.modifiedAt)).catch(() => undefined);
+        progress.fileDone();
+      }
+      await atomicJson(path.join(pending, 'export-info.json'), {
+        schema: 'cn.dxr.gobsmacked-content-export', version: 1, exportedAt: new Date().toISOString(),
+        records: vaultEntries.filter((entry) => entry.type === 'file').length,
+        files: libraryFiles.length, bytes: totalBytes, decrypted: true
+      });
+      progress.setStage('finishing'); progress.finish();
+      await finishExport(pending, target);
+      mainWindow?.webContents.send('export:progress', { type: 'content', stage: 'done', percent: 100, files: totalFiles, totalFiles });
+      return { path: target, files: totalFiles, bytes: totalBytes };
+    } catch (error) {
+      if (pending === `${target}.partial` && path.dirname(pending) === parent) await fsp.rm(pending, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
     }
-    const files = await walk(vaultRoot);
-    async function hashFile(file) {
-      const hash = crypto.createHash('sha256');
-      for await (const chunk of fs.createReadStream(file)) hash.update(chunk);
-      return hash.digest('hex');
+  }));
+
+  ipcMain.handle('export:migration', async () => withExportLock(async () => {
+    requireInner();
+    const picked = await dialog.showOpenDialog(mainWindow, { title: '选择迁移备份位置', properties: ['openDirectory', 'createDirectory'] });
+    if (picked.canceled || !picked.filePaths[0]) return null;
+    const parent = path.resolve(picked.filePaths[0]); assertExportDestination(parent);
+    const { target, pending } = await exportTarget(parent, `Gobsmacked-Migration-${exportStamp()}`);
+    const excludedSystemRoots = new Set(['.git', 'node_modules', '.gobsmacked-build']);
+    const systemEntries = await inventoryTree(programRoot, (relative) => !excludedSystemRoots.has(relative.split(path.sep)[0]));
+    const archiveEntries = await inventoryTree(libraryRoot);
+    const vaultEntries = await inventoryTree(vaultRoot);
+    const stateFiles = ['security.json', 'trusted-device.json', 'archive-rekey-report.json']
+      .map((name) => path.join(userDataRoot, name)).filter((file) => fs.existsSync(file));
+    const stateStats = await Promise.all(stateFiles.map((file) => fsp.stat(file)));
+    const allEntries = [...systemEntries, ...archiveEntries, ...vaultEntries];
+    const totalBytes = allEntries.reduce((sum, entry) => sum + entry.size, 0) + stateStats.reduce((sum, stat) => sum + stat.size, 0);
+    const totalFiles = allEntries.filter((entry) => entry.type === 'file').length + stateFiles.length;
+    const progress = createProgressReporter('migration', 'system', totalBytes, totalFiles);
+    try {
+      const copyRoot = path.join(pending, 'Gobsmacked');
+      await fsp.mkdir(copyRoot, { recursive: true });
+      await copyInventory(systemEntries, path.join(copyRoot, 'System'), progress);
+      progress.setStage('archive'); await copyInventory(archiveEntries, path.join(copyRoot, 'Archive'), progress);
+      progress.setStage('userData'); await copyInventory(vaultEntries, path.join(copyRoot, 'UserData', 'vault'), progress);
+      for (const file of stateFiles) await copyFileStreaming(file, path.join(copyRoot, 'UserData', path.basename(file)), progress);
+      await atomicJson(path.join(pending, 'migration.json'), {
+        schema: 'cn.dxr.gobsmacked-migration', version: 1, createdAt: new Date().toISOString(),
+        layout: { system: 'Gobsmacked/System', archive: 'Gobsmacked/Archive', userData: 'Gobsmacked/UserData' },
+        restoreUserDataTo: '%APPDATA%\\gobsmacked', archiveEncrypted: true, files: totalFiles, bytes: totalBytes
+      });
+      await fsp.writeFile(path.join(pending, 'RESTORE.txt'),
+        'Gobsmacked 迁移备份\r\n\r\n1. 将 Gobsmacked 目录复制到目标位置。\r\n2. 将 Gobsmacked\\UserData 的内容复制到 %APPDATA%\\gobsmacked。\r\n3. 从 Gobsmacked\\System\\Gobsmacked.exe 启动。\r\n4. 历史档案仍需原历史密匙解锁。\r\n5. UserData 包含可读记录，请将备份保存在受保护的位置。\r\n', 'utf8');
+      progress.setStage('finishing'); progress.finish();
+      await finishExport(pending, target);
+      mainWindow?.webContents.send('export:progress', { type: 'migration', stage: 'done', percent: 100, files: totalFiles, totalFiles });
+      return { path: target, files: totalFiles, bytes: totalBytes };
+    } catch (error) {
+      if (pending === `${target}.partial` && path.dirname(pending) === parent) await fsp.rm(pending, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
     }
-    for (const file of files) {
-      checksums[file.relative] = await hashFile(file.absolute);
-    }
-    await new Promise((resolve, reject) => {
-      const output = fs.createWriteStream(picked.filePath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
-      output.on('close', resolve); archive.on('error', reject);
-      archive.pipe(output);
-      for (const file of files) archive.file(file.absolute, { name: `vault/${file.relative}` });
-      archive.append(`${JSON.stringify({ algorithm: 'sha256', files: checksums }, null, 2)}\n`, { name: 'checksums.json' });
-      archive.append('Gobsmacked 资料库导出包。恢复时请保留 vault 目录结构，并先核对 checksums.json。\n', { name: 'README.txt' });
-      archive.finalize();
-    });
-    return { filePath: picked.filePath, fileCount: files.length };
-  });
+  }));
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
