@@ -108,11 +108,14 @@
     <div id="export-progress" class="export-progress hidden" role="status"><span id="export-progress-label"></span><i><b id="export-progress-bar"></b></i><em id="export-progress-percent">0%</em></div>
     <main class="history-main">
       <div id="history-records-view" class="history-records-view">
-        <section class="glass timeline-panel">
-          <div class="timeline-date"><p class="eyebrow" data-i18n="chronology">时间轴</p><h2 id="timeline-date"></h2></div>
+        <section class="glass year-timeline-panel">
+          <div class="timeline-date"><p class="eyebrow" data-i18n="yearScale">年份</p><h2 id="timeline-date"></h2></div>
           <div class="year-chronology-shell"><div id="year-chronology" class="year-chronology" tabindex="0" aria-label="年份刻度"><canvas id="year-scale-canvas" class="year-scale-canvas" aria-hidden="true"></canvas></div><div class="year-timeline-cursor" aria-hidden="true"><i></i></div></div>
+        </section>
+        <section class="glass month-timeline-panel">
+          <p class="eyebrow month-scale-title" data-i18n="dayScale">月份 / 记录日</p>
           <div class="chronology-shell"><div id="chronology" class="chronology" tabindex="0" aria-label="历史时轨"><canvas id="timeline-scale-canvas" class="timeline-scale-canvas" aria-hidden="true"></canvas></div><div id="timeline-cursor" class="timeline-cursor" aria-hidden="true"><i></i></div></div>
-          <div class="timeline-legend"><span><i class="major-sample"></i><span data-i18n="yearScale">年份</span></span><span id="day-scale-legend"><i class="minor-sample"></i><span data-i18n="dayScale">记录日</span></span><em data-i18n="dragChronology">滚动或拖动刻度</em></div>
+          <div class="timeline-legend"><span id="day-scale-legend"><i class="minor-sample"></i><span data-i18n="dayScale">月份 / 记录日</span></span><em data-i18n="dragChronology">拖动刻度</em></div>
         </section>
         <article id="history-preview" class="glass history-preview"></article>
       </div>

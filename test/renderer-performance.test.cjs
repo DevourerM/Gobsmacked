@@ -6,6 +6,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const renderer = fs.readFileSync(path.join(root, 'src', 'renderer', 'app.js'), 'utf8');
 const markup = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
+const styles = fs.readFileSync(path.join(root, 'src', 'renderer', 'styles.css'), 'utf8');
 
 test('历史年份与月日刻度使用双画布虚拟绘制，不创建逐日 DOM 节点', () => {
   assert.match(markup, /id="timeline-scale-canvas"/);
@@ -29,4 +30,15 @@ test('文字输入合并同步，不在每次按键递归扫描整段记录', ()
   assert.doesNotMatch(renderer, /addEventListener\(['"]input['"], \(\) => \{ readParagraphEditor/);
   assert.match(renderer, /editor\.spellcheck = false/);
   assert.match(renderer, /flushPendingParagraphEditors\(\);\s*if \(state\.saving\)/);
+});
+
+test('历史布局将年份置于上方整行，月日置于左侧', () => {
+  assert.match(markup, /class="glass year-timeline-panel"/);
+  assert.match(markup, /class="glass month-timeline-panel"/);
+  assert.match(styles, /\.year-timeline-panel[^}]*grid-column: 1 \/ -1/);
+  assert.match(styles, /\.month-timeline-panel[^}]*grid-column: 1/);
+});
+
+test('图片悬浮预览完整包含纵向图片', () => {
+  assert.match(styles, /\.image-popover-open img[^}]*width: 100%[^}]*height: 100%[^}]*object-fit: contain/);
 });

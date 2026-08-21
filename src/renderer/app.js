@@ -1270,7 +1270,7 @@ function renderChronology() {
   const dataYears = [...state.historyIndex.years.map(Number), ...state.historyIndex.days.map((key) => Number(key.slice(0, 4)))].filter(Number.isFinite);
   const minYear = dataYears.length ? Math.min(...dataYears) : currentYear;
   const maxYear = Math.max(currentYear, ...(dataYears.length ? dataYears : [currentYear]));
-  state.yearMarkers = Array.from({ length: maxYear - minYear + 1 }, (_, index) => ({ kind: 'year', key: String(minYear + index), x: index * 96 }));
+  state.yearMarkers = Array.from({ length: maxYear - minYear + 1 }, (_, index) => ({ kind: 'year', key: String(minYear + index), x: index * 210 }));
   state.yearMarkerMap = new Map(state.yearMarkers.map((marker) => [marker.key, marker]));
   const latestDayYear = state.historyIndex.days.at(-1)?.slice(0,4);
   const latestYear = state.historyIndex.years.at(-1);
