@@ -10,7 +10,7 @@ const messages = {
     addTag: '＋ 添加标签', addContent: '添加内容', textBlock: '¶ 文本', image: '▧ 图片', recordAudio: '● 录音', environment: '环境', currentLocation: '当前位置', clear: '清除',
     noLocation: '尚未记录地点', setLocation: '设置地点', todaySummary: '今日概览', textCount: '文字数', mediaCount: '媒体数',
     protectedArchive: '独立保护', verifyPast: '验证访问', verify: '验证', setupHistoryAccess: '设置历史密钥', saveAndEnter: '保存并进入', historySecret: '历史密钥', archive: '历史', archiveReview: '历史记录', importLegacy: '导入旧记录', exportContent: '导出内容', exportMigration: '迁移备份', returnPresent: '返回今天', recordArchive: '记录', fileArchive: '资料',
-    chronology: '时间轴', yearScale: '年份', dayScale: '记录日', dragChronology: '滚动或拖动刻度', filterFiles: '筛选当前目录', importFiles: '导入文件', importFolder: '导入文件夹', openFile: '打开', extractFile: '提取', libraryEmpty: '当前目录为空', sealedArchive: '加密档案', voiceRecord: '录音', recording: '正在录音', recordingActive: '正在录音', stopRecording: '停止', insertRecording: '插入标签',
+    chronology: '时间轴', yearScale: '年份', dayScale: '月份 / 记录日', dragChronology: '拖动刻度', filterFiles: '筛选当前目录', importFiles: '导入文件', importFolder: '导入文件夹', openFile: '打开', extractFile: '提取', libraryEmpty: '当前目录为空', sealedArchive: '加密档案', voiceRecord: '录音', recording: '正在录音', recordingActive: '正在录音', stopRecording: '停止', insertRecording: '插入标签',
     voiceLabel: '录音标签', voiceLabelPlaceholder: '例如：雨声', imageLabel: '图片标签', imageLabelPlaceholder: '例如：星空', insertImageTag: '插入标签', previewRecording: '试听录音', play: '播放', pause: '暂停',
     calendarMark: '日期标注', markContent: '标注内容', markPlaceholder: '纪念日、约定或事件', displayScope: '显示范围', once: '仅此日期', onceDesc: '只在这一年的这一天显示', annual: '每年重复', annualDesc: '每年的同一日期显示', saveMark: '保存标注', place: '地点', placePlaceholder: '地点名称或地址', saveAddress: '保存', locateSave: '定位',
     waitingSave: '等待自动保存…', saving: '正在保存…', savedAt: '已保存 · {time}', saveFailed: '保存失败，稍后重试', reading: '正在读取…', readFailed: '读取失败',
@@ -27,7 +27,7 @@ const messages = {
     addTag: '+ Add tag', addContent: 'Add content', textBlock: '¶ Text', image: '▧ Image', recordAudio: '● Record', environment: 'ENVIRONMENT', currentLocation: 'Current Place', clear: 'Clear',
     noLocation: 'No place recorded', setLocation: 'Set Place', todaySummary: 'TODAY', textCount: 'Characters', mediaCount: 'Media',
     protectedArchive: 'SEPARATE ACCESS', verifyPast: 'Verify Access', verify: 'Verify', setupHistoryAccess: 'Set History Passkey', saveAndEnter: 'Save and Enter', historySecret: 'History passkey', archive: 'ARCHIVE', archiveReview: 'Past Records', importLegacy: 'Import Records', exportContent: 'Export Content', exportMigration: 'Migration Copy', returnPresent: 'Return to Present', recordArchive: 'Records', fileArchive: 'Files',
-    chronology: 'TIMELINE', yearScale: 'Years', dayScale: 'Recorded days', dragChronology: 'Scroll or drag the scale', filterFiles: 'Filter this folder', importFiles: 'Import Files', importFolder: 'Import Folder', openFile: 'Open', extractFile: 'Extract', libraryEmpty: 'This folder is empty', sealedArchive: 'Encrypted Archive', voiceRecord: 'RECORDING', recording: 'Recording', recordingActive: 'Recording', stopRecording: 'Stop', insertRecording: 'Insert Tag',
+    chronology: 'TIMELINE', yearScale: 'Years', dayScale: 'Months / recorded days', dragChronology: 'Drag the scales', filterFiles: 'Filter this folder', importFiles: 'Import Files', importFolder: 'Import Folder', openFile: 'Open', extractFile: 'Extract', libraryEmpty: 'This folder is empty', sealedArchive: 'Encrypted Archive', voiceRecord: 'RECORDING', recording: 'Recording', recordingActive: 'Recording', stopRecording: 'Stop', insertRecording: 'Insert Tag',
     voiceLabel: 'Recording label', voiceLabelPlaceholder: 'For example: Rain', imageLabel: 'Image label', imageLabelPlaceholder: 'For example: Night sky', insertImageTag: 'Insert Tag', previewRecording: 'Preview recording', play: 'Play', pause: 'Pause',
     calendarMark: 'DATE MARK', markContent: 'Description', markPlaceholder: 'Anniversary, appointment, or event', displayScope: 'Display scope', once: 'This date only', onceDesc: 'Show only on this date in this year', annual: 'Repeat yearly', annualDesc: 'Show on the same date every year', saveMark: 'Save Mark', place: 'Place', placePlaceholder: 'Place or address', saveAddress: 'Save', locateSave: 'Locate',
     waitingSave: 'Autosave pending…', saving: 'Saving…', savedAt: 'Saved · {time}', saveFailed: 'Save failed; retrying', reading: 'Loading…', readFailed: 'Load failed',
@@ -106,7 +106,8 @@ function applyLanguage() {
   if (state.record) { $('#header-date').textContent = displayDate(state.date); renderRecord(); refreshCalendarData(); }
   if (state.historyUnlocked) {
     renderChronology();
-    if (state.timelineSelection) loadHistoryRecord(state.timelineSelection.kind, state.timelineSelection.key);
+    if (state.timelineSelection?.kind === 'month') renderHistoryMonth(state.timelineSelection.key);
+    else if (state.timelineSelection) loadHistoryRecord(state.timelineSelection.kind, state.timelineSelection.key);
     if (state.archiveMode === 'library') loadLibrary(state.libraryPath, state.libraryQuery);
   }
 }
@@ -954,7 +955,7 @@ function createCosmosPainter(canvas, { seed, density, nebulaStrength, deferMs = 
   let stars = []; let background = null; let width = 0; let height = 0; let resizeTimer; let ready = deferMs <= 0;
   function gaussian(random) { return (random() + random() + random() + random() - 2) / 2; }
   function resize() {
-    if (canvas.id === 'history-cosmos' && (document.body.classList.contains('timeline-dragging') || document.body.classList.contains('timeline-scrolling'))) { scheduleResize(); return; }
+    if (canvas.id === 'history-cosmos' && ['timeline-dragging','timeline-scrolling','year-timeline-dragging','year-timeline-scrolling'].some((name) => document.body.classList.contains(name))) { scheduleResize(); return; }
     const bounds = canvas.getBoundingClientRect();
     const nextWidth = Math.max(1, Math.round(bounds.width)); const nextHeight = Math.max(1, Math.round(bounds.height));
     if (nextWidth === width && nextHeight === height && background) return;
@@ -1078,10 +1079,18 @@ let historyScheduledSelection = '';
 let chronologyTweenFrame = 0;
 let chronologySettleTimer;
 let chronologyDrawFrame = 0;
+let yearTweenFrame = 0;
+let yearSettleTimer;
+let yearDrawFrame = 0;
 
 function stopChronologyTween() {
   if (chronologyTweenFrame) cancelAnimationFrame(chronologyTweenFrame);
   chronologyTweenFrame = 0; document.body.classList.remove('timeline-scrolling');
+}
+
+function stopYearTween() {
+  if (yearTweenFrame) cancelAnimationFrame(yearTweenFrame);
+  yearTweenFrame = 0; document.body.classList.remove('year-timeline-scrolling');
 }
 
 function clampTimelineOffset(value) {
@@ -1090,9 +1099,43 @@ function clampTimelineOffset(value) {
   return Math.max(first, Math.min(last, Number(value) || 0));
 }
 
+function clampYearOffset(value) {
+  const first = state.yearMarkers?.[0]?.x ?? 0;
+  const last = state.yearMarkers?.at(-1)?.x ?? first;
+  return Math.max(first, Math.min(last, Number(value) || 0));
+}
+
 function scheduleChronologyDraw() {
   if (chronologyDrawFrame) return;
   chronologyDrawFrame = requestAnimationFrame(() => { chronologyDrawFrame = 0; drawChronology(); });
+}
+
+function scheduleYearDraw() {
+  if (yearDrawFrame) return;
+  yearDrawFrame = requestAnimationFrame(() => { yearDrawFrame = 0; drawYearChronology(); });
+}
+
+function drawYearChronology() {
+  const canvas = $('#year-scale-canvas');
+  const container = $('#year-chronology');
+  const bounds = container.getBoundingClientRect();
+  const width = Math.max(1, Math.round(bounds.width)); const height = Math.max(1, Math.round(bounds.height));
+  const scale = Math.min(devicePixelRatio, 1.25);
+  if (canvas.width !== Math.round(width * scale) || canvas.height !== Math.round(height * scale)) { canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale); }
+  const ctx = canvas.getContext('2d'); ctx.setTransform(scale,0,0,scale,0,0); ctx.clearRect(0,0,width,height);
+  const markers = state.yearMarkers || []; if (!markers.length) return;
+  const centerX = width / 2; const railY = Math.round(height * .58);
+  const rail = ctx.createLinearGradient(0,0,width,0); rail.addColorStop(0,'rgba(176,208,222,.04)'); rail.addColorStop(.12,'rgba(205,229,239,.5)'); rail.addColorStop(.88,'rgba(205,229,239,.5)'); rail.addColorStop(1,'rgba(176,208,222,.04)');
+  ctx.fillStyle = rail; ctx.fillRect(0,railY,width,1);
+  const lower = state.yearOffset - centerX - 70; const upper = state.yearOffset + centerX + 70;
+  markers.forEach((marker) => {
+    if (marker.x < lower || marker.x > upper) return;
+    const x = centerX + marker.x - state.yearOffset; const active = marker.key === state.timelineYear;
+    ctx.strokeStyle = active ? '#e9f9ff' : 'rgba(171,204,218,.48)'; ctx.lineWidth = active ? 1.5 : 1;
+    ctx.beginPath(); ctx.moveTo(x,railY - (active ? 18 : 11)); ctx.lineTo(x,railY + (active ? 19 : 13)); ctx.stroke();
+    ctx.save(); ctx.translate(x,railY); ctx.rotate(Math.PI/4); ctx.fillStyle = '#071015'; ctx.strokeStyle = active ? '#e9f9ff' : 'rgba(173,210,225,.55)'; ctx.strokeRect(-5,-5,10,10); ctx.restore();
+    ctx.fillStyle = active ? '#f0f8fb' : '#9dafb8'; ctx.font = `${active ? 15 : 13}px ui-monospace, monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(marker.key,x,railY - 21);
+  });
 }
 
 function drawChronology() {
@@ -1124,15 +1167,15 @@ function drawChronology() {
     const y = centerY + marker.y - state.timelineOffset;
     const active = `${marker.kind}:${marker.key}` === activeId;
     ctx.save();
-    if (marker.kind === 'year') {
+    if (marker.kind === 'month') {
       ctx.strokeStyle = active ? 'rgba(231,249,255,.92)' : 'rgba(175,205,218,.34)'; ctx.lineWidth = active ? 1.5 : 1;
       ctx.beginPath(); ctx.moveTo(Math.max(10, railX - 38), y); ctx.lineTo(width - 12, y); ctx.stroke();
       ctx.translate(railX, y); ctx.rotate(Math.PI / 4); ctx.fillStyle = '#071015'; ctx.strokeStyle = active ? '#e6f9ff' : 'rgba(183,215,228,.6)'; ctx.lineWidth = active ? 1.5 : 1; ctx.fillRect(-7,-7,14,14); ctx.strokeRect(-7,-7,14,14); ctx.rotate(-Math.PI / 4); ctx.translate(-railX, -y);
-      ctx.fillStyle = active ? '#f0f7fa' : '#c7d6dd'; ctx.font = '15px ui-monospace, monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(marker.key, railX - 25, y);
+      ctx.fillStyle = active ? '#f0f7fa' : '#c7d6dd'; ctx.font = '15px ui-monospace, monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(marker.shortLabel, railX - 25, y);
     } else {
-      const length = active ? 68 : marker.monthStart ? 54 : marker.fifth ? 34 : 20;
-      ctx.strokeStyle = active ? '#e6f9ff' : marker.monthStart ? 'rgba(205,228,237,.8)' : marker.fifth ? 'rgba(175,207,219,.58)' : 'rgba(155,190,205,.4)';
-      ctx.lineWidth = active || marker.monthStart ? 1.5 : 1; ctx.beginPath(); ctx.moveTo(railX, y); ctx.lineTo(railX + length, y); ctx.stroke();
+      const length = active ? 68 : marker.fifth ? 34 : 20;
+      ctx.strokeStyle = active ? '#e6f9ff' : marker.fifth ? 'rgba(175,207,219,.58)' : 'rgba(155,190,205,.4)';
+      ctx.lineWidth = active ? 1.5 : 1; ctx.beginPath(); ctx.moveTo(railX, y); ctx.lineTo(railX + length, y); ctx.stroke();
       const labelX = railX + 66; const labelWidth = 58;
       ctx.fillStyle = active ? 'rgba(9,21,27,.98)' : 'rgba(1,5,8,.8)'; ctx.strokeStyle = active ? 'rgba(188,229,246,.52)' : 'rgba(143,190,210,.12)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(labelX, y - 13, labelWidth, 26, 5); ctx.fill(); ctx.stroke();
@@ -1140,6 +1183,22 @@ function drawChronology() {
     }
     ctx.restore();
   }
+}
+
+function centerYearMarker(marker, animated = true) {
+  clearTimeout(yearSettleTimer);
+  const target = clampYearOffset(marker.x); const start = clampYearOffset(state.yearOffset); const distance = target - start;
+  stopYearTween();
+  if (!animated || Math.abs(distance) < 1) { state.yearOffset = target; scheduleYearDraw(); return; }
+  document.body.classList.add('year-timeline-scrolling');
+  const startedAt = performance.now(); const duration = Math.min(240, Math.max(130, Math.abs(distance) * 1.15));
+  const step = (now) => {
+    const progress = Math.min(1,(now-startedAt)/duration); const eased = 1-(1-progress)**3;
+    state.yearOffset = start + distance * eased; drawYearChronology();
+    if (progress < 1) yearTweenFrame = requestAnimationFrame(step);
+    else { yearTweenFrame = 0; state.yearOffset = target; document.body.classList.remove('year-timeline-scrolling'); drawYearChronology(); }
+  };
+  yearTweenFrame = requestAnimationFrame(step);
 }
 
 function centerChronologyMarker(marker, animated = true) {
@@ -1171,49 +1230,46 @@ async function configureTimeline() {
 }
 
 function renderChronology() {
-  stopChronologyTween();
+  stopChronologyTween(); stopYearTween();
   const currentYear = new Date().getFullYear();
   const dataYears = [...state.historyIndex.years.map(Number), ...state.historyIndex.days.map((key) => Number(key.slice(0, 4)))].filter(Number.isFinite);
   const minYear = dataYears.length ? Math.min(...dataYears) : currentYear;
   const maxYear = Math.max(currentYear, ...(dataYears.length ? dataYears : [currentYear]));
+  state.yearMarkers = Array.from({ length: maxYear - minYear + 1 }, (_, index) => ({ kind: 'year', key: String(minYear + index), x: index * 96 }));
+  state.yearMarkerMap = new Map(state.yearMarkers.map((marker) => [marker.key, marker]));
+  const latestDayYear = state.historyIndex.days.at(-1)?.slice(0,4);
+  const latestYear = state.historyIndex.years.at(-1);
+  if (!state.timelineYear || !state.yearMarkerMap.has(state.timelineYear)) state.timelineYear = latestDayYear || latestYear || String(currentYear);
+  state.yearOffset = clampYearOffset(state.yearOffset ?? state.yearMarkerMap.get(state.timelineYear)?.x);
+  renderMonthDayChronology(state.timelineYear, state.timelineRenderedYear !== state.timelineYear);
+  scheduleYearDraw();
+}
+
+function renderMonthDayChronology(year, resetOffset = false) {
   const markers = [];
-  const daysByYear = new Map();
-  state.historyIndex.days.forEach((key) => {
-    const year = Number(key.slice(0, 4));
-    if (!daysByYear.has(year)) daysByYear.set(year, []);
-    daysByYear.get(year).push(key);
-  });
-  daysByYear.forEach((keys) => keys.sort());
+  const yearDays = state.historyIndex.days.filter((key) => key.startsWith(`${year}-`)).sort();
   let cursorY = 0;
-  const dayOffset = 76;
-  const dayStep = 42;
-  const yearTail = 96;
-  const emptyYearGap = 168;
-
-  for (let year = minYear; year <= maxYear; year += 1) {
-    const y = cursorY;
-    markers.push({ kind: 'year', key: String(year), y });
-    const yearDays = daysByYear.get(year) || [];
-    let previousMonth = -1;
-    yearDays.forEach((key, index) => {
+  for (let month = 1; month <= 12; month += 1) {
+    const monthKey = `${year}-${String(month).padStart(2,'0')}`;
+    const monthDays = yearDays.filter((key) => key.startsWith(`${monthKey}-`));
+    markers.push({ kind: 'month', key: monthKey, y: cursorY, shortLabel: state.language === 'zh' ? `${month}月` : new Intl.DateTimeFormat('en-US',{month:'short'}).format(new Date(Number(year),month-1,1)) });
+    monthDays.forEach((key,index) => {
       const date = dateFromKey(key);
-      const dayY = y + dayOffset + index * dayStep;
-      const monthStart = date.getMonth() !== previousMonth;
-      previousMonth = date.getMonth();
+      const dayY = cursorY + 48 + index * 42;
       const fifth = date.getDate() % 5 === 0;
-      const shortLabel = `${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
-      markers.push({ kind: 'day', key, y: dayY, shortLabel, monthStart, fifth });
+      const shortLabel = state.language === 'zh' ? `${String(date.getDate()).padStart(2,'0')}日` : String(date.getDate()).padStart(2,'0');
+      markers.push({ kind: 'day', key, y: dayY, shortLabel, fifth });
     });
-    cursorY += yearDays.length ? dayOffset + Math.max(0, yearDays.length - 1) * dayStep + yearTail : emptyYearGap;
+    cursorY += monthDays.length ? 48 + Math.max(0,monthDays.length-1)*42 + 72 : 70;
   }
-
-  state.timelineMarkers = markers.sort((a, b) => a.y - b.y || (a.kind === 'year' ? -1 : 1));
+  state.timelineMarkers = markers.sort((a,b) => a.y-b.y || (a.kind === 'month' ? -1 : 1));
   state.timelineMarkerMap = new Map(state.timelineMarkers.map((marker) => [`${marker.kind}:${marker.key}`, marker]));
+  state.timelineRenderedYear = year;
+  if (resetOffset) state.timelineOffset = state.timelineMarkers.filter((marker) => marker.kind === 'day').at(-1)?.y ?? 0;
   state.timelineOffset = clampTimelineOffset(state.timelineOffset);
-  $('#day-scale-legend').classList.toggle('hidden', state.historyIndex.days.length === 0);
-  $('#chronology').classList.toggle('years-only', state.historyIndex.days.length === 0);
+  $('#day-scale-legend').classList.toggle('hidden', yearDays.length === 0);
+  $('#chronology').classList.toggle('years-only', yearDays.length === 0);
   scheduleChronologyDraw();
-  if (state.timelineSelection) updateTimelineCursor(false);
 }
 
 function nearestTimelineMarker(value = state.timelineOffset) {
@@ -1231,20 +1287,38 @@ function nearestTimelineMarker(value = state.timelineOffset) {
 
 function nearestTimelineMarkerAtCenter() { return nearestTimelineMarker(state.timelineOffset); }
 
+function nearestYearMarker(value = state.yearOffset) {
+  const markers = state.yearMarkers; if (!markers?.length) return;
+  return markers.reduce((nearest, marker) => !nearest || Math.abs(marker.x-value) < Math.abs(nearest.x-value) ? marker : nearest, null);
+}
+
 function selectNearestTimelineMarker(nearest = nearestTimelineMarkerAtCenter()) {
   if (!nearest) return;
   if (state.timelineSelection?.kind === nearest.kind && state.timelineSelection?.key === nearest.key) return nearest;
   state.timelineSelection = { kind: nearest.kind, key: nearest.key };
-  $('#timeline-date').textContent = nearest.kind === 'year' ? nearest.key : nearest.key.replaceAll('-', '.');
+  $('#timeline-date').textContent = nearest.key.replaceAll('-', '.');
   scheduleChronologyDraw();
   return nearest;
 }
 
+function selectNearestYearMarker(nearest = nearestYearMarker()) {
+  if (!nearest) return;
+  if (state.timelineYear !== nearest.key) {
+    state.timelineYear = nearest.key; state.timelineSelection = { kind: 'year', key: nearest.key };
+    $('#timeline-date').textContent = nearest.key;
+    renderMonthDayChronology(nearest.key,true);
+  }
+  scheduleYearDraw(); return nearest;
+}
+
 function selectTimeline(kind, key, center = false, loadDelay = center ? 500 : 100) {
+  const year = kind === 'year' ? key : key.slice(0,4);
+  if (state.timelineYear !== year) { state.timelineYear = year; renderMonthDayChronology(year,true); }
   state.timelineSelection = { kind, key };
   $('#timeline-date').textContent = kind === 'year' ? key : key.replaceAll('-', '.');
   updateTimelineCursor(center);
   clearTimeout(historyTimer);
+  if (kind === 'month') { historyScheduledSelection = ''; renderHistoryMonth(key); return; }
   const selectionId = `${kind}:${key}`; historyScheduledSelection = selectionId;
   historyTimer = setTimeout(() => {
     if (historyScheduledSelection !== selectionId) return;
@@ -1254,14 +1328,29 @@ function selectTimeline(kind, key, center = false, loadDelay = center ? 500 : 10
 
 function updateTimelineCursor(center) {
   const selection = state.timelineSelection;
-  const marker = state.timelineMarkerMap?.get(`${selection?.kind}:${selection?.key}`);
-  if (!marker) return;
-  scheduleChronologyDraw();
-  if (center) centerChronologyMarker(marker, true);
+  const year = selection?.kind === 'year' ? selection.key : selection?.key?.slice(0,4);
+  const yearMarker = state.yearMarkerMap?.get(year);
+  scheduleYearDraw(); scheduleChronologyDraw();
+  if (center && yearMarker) centerYearMarker(yearMarker,true);
+  if (selection?.kind !== 'year') {
+    const marker = state.timelineMarkerMap?.get(`${selection?.kind}:${selection?.key}`);
+    if (center && marker) centerChronologyMarker(marker,true);
+  }
 }
 
 function setupTimelineCanvas() {
   new ResizeObserver(scheduleChronologyDraw).observe($('#chronology'));
+  new ResizeObserver(scheduleYearDraw).observe($('#year-chronology'));
+}
+
+function renderHistoryMonth(key) {
+  historyLoadSerial += 1;
+  const preview = $('#history-preview'); preview.replaceChildren(); preview.classList.add('is-empty');
+  const heading = document.createElement('header'); heading.className = 'history-record-heading';
+  const title = document.createElement('h2');
+  const [year,month] = key.split('-').map(Number);
+  title.textContent = state.language === 'zh' ? `${year}年${month}月` : new Intl.DateTimeFormat('en-US',{year:'numeric',month:'long'}).format(new Date(year,month-1,1));
+  heading.append(title); const body = document.createElement('div'); body.className = 'history-record-body'; preview.append(heading,body);
 }
 
 async function loadHistoryRecord(kind, key) {
@@ -1383,7 +1472,7 @@ function showHistory() {
 }
 function hideHistory() {
   if (state.exportBusy) { toast(state.language === 'zh' ? '导出进行中' : 'Export in progress'); return; }
-  stopChronologyTween(); clearTimeout(chronologySettleTimer); clearTimeout(historyTimer); historyScheduledSelection = ''; historyLoadSerial += 1; document.body.classList.remove('timeline-dragging','timeline-scrolling');
+  stopChronologyTween(); stopYearTween(); clearTimeout(chronologySettleTimer); clearTimeout(yearSettleTimer); clearTimeout(historyTimer); historyScheduledSelection = ''; historyLoadSerial += 1; document.body.classList.remove('timeline-dragging','timeline-scrolling','year-timeline-dragging','year-timeline-scrolling');
   $('#history').classList.add('hidden'); $('#history').setAttribute('aria-hidden','true'); document.body.classList.remove('history-open'); state.historyUnlocked = false; api.lockInner();
 }
 
@@ -1522,6 +1611,59 @@ function bindEvents() {
   $('#close-history').addEventListener('click', hideHistory);
   $('#archive-records-mode').addEventListener('click', () => setArchiveMode('records'));
   $('#archive-library-mode').addEventListener('click', () => setArchiveMode('library'));
+  let yearDrag = null;
+  let yearDragFrame = 0;
+  const settleYearChronology = () => {
+    if (yearDrag) return;
+    const nearest = nearestYearMarker();
+    if (nearest) selectTimeline('year',nearest.key,true,240);
+  };
+  $('#year-chronology').addEventListener('wheel',(event) => {
+    event.preventDefault(); stopYearTween(); clearTimeout(historyTimer); historyScheduledSelection = ''; clearTimeout(yearSettleTimer);
+    document.body.classList.add('year-timeline-scrolling');
+    state.yearOffset = clampYearOffset(state.yearOffset + (Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY) * .8);
+    selectNearestYearMarker(); scheduleYearDraw();
+    yearSettleTimer = setTimeout(() => { document.body.classList.remove('year-timeline-scrolling'); settleYearChronology(); },190);
+  },{ passive:false });
+  $('#year-chronology').addEventListener('pointerdown',(event) => {
+    if (event.button !== 0) return;
+    stopYearTween(); clearTimeout(historyTimer); historyScheduledSelection = ''; clearTimeout(yearSettleTimer);
+    yearDrag = { pointerId:event.pointerId,startX:event.clientX,startOffset:state.yearOffset,latestX:event.clientX,moved:false };
+    $('#year-chronology').setPointerCapture(event.pointerId); $('#year-chronology').classList.add('is-dragging'); document.body.classList.add('year-timeline-dragging','year-timeline-scrolling');
+  });
+  $('#year-chronology').addEventListener('pointermove',(event) => {
+    if (!yearDrag || yearDrag.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX-yearDrag.startX) > 3) yearDrag.moved = true;
+    if (!yearDrag.moved) return;
+    yearDrag.latestX = event.clientX;
+    if (!yearDragFrame) yearDragFrame = requestAnimationFrame(() => {
+      yearDragFrame = 0; if (!yearDrag) return;
+      state.yearOffset = clampYearOffset(yearDrag.startOffset-(yearDrag.latestX-yearDrag.startX));
+      selectNearestYearMarker(); scheduleYearDraw();
+    });
+    event.preventDefault();
+  });
+  const finishYearDrag = (event) => {
+    if (!yearDrag || (event.pointerId !== undefined && yearDrag.pointerId !== event.pointerId)) return;
+    if (yearDragFrame) { cancelAnimationFrame(yearDragFrame); yearDragFrame = 0; }
+    const drag = yearDrag;
+    if (drag.moved) state.yearOffset = clampYearOffset(drag.startOffset-(drag.latestX-drag.startX));
+    yearDrag = null; $('#year-chronology').classList.remove('is-dragging'); document.body.classList.remove('year-timeline-dragging','year-timeline-scrolling');
+    if (drag.moved) settleYearChronology();
+    else {
+      const bounds = $('#year-chronology').getBoundingClientRect();
+      const clicked = nearestYearMarker(state.yearOffset + event.clientX-(bounds.left+bounds.width/2));
+      if (clicked) selectTimeline('year',clicked.key,true,240);
+    }
+  };
+  $('#year-chronology').addEventListener('pointerup',finishYearDrag);
+  $('#year-chronology').addEventListener('pointercancel',finishYearDrag);
+  $('#year-chronology').addEventListener('keydown',(event) => {
+    if (!['ArrowLeft','ArrowRight'].includes(event.key) || !state.yearMarkers?.length) return;
+    event.preventDefault(); const current = state.yearMarkers.findIndex((marker) => marker.key === state.timelineYear);
+    const next = state.yearMarkers[Math.max(0,Math.min(state.yearMarkers.length-1,current+(event.key === 'ArrowLeft' ? -1 : 1)))];
+    if (next) selectTimeline('year',next.key,true);
+  });
   let chronologyDrag = null;
   let chronologyDragFrame = 0;
   const settleChronology = () => {

@@ -7,8 +7,9 @@ const root = path.resolve(__dirname, '..');
 const renderer = fs.readFileSync(path.join(root, 'src', 'renderer', 'app.js'), 'utf8');
 const markup = fs.readFileSync(path.join(root, 'src', 'renderer', 'index.html'), 'utf8');
 
-test('历史刻度使用单画布虚拟绘制，不创建逐日 DOM 节点', () => {
+test('历史年份与月日刻度使用双画布虚拟绘制，不创建逐日 DOM 节点', () => {
   assert.match(markup, /id="timeline-scale-canvas"/);
+  assert.match(markup, /id="year-scale-canvas"/);
   assert.doesNotMatch(markup, /id="timeline-ticks"/);
   assert.doesNotMatch(renderer, /createElement\(['"]button['"]\)[\s\S]{0,200}timeline-tick/);
 });
