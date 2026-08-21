@@ -19,7 +19,7 @@ function isValidDateKey(kind, value) {
 
 function weekdayTag(dateKey) {
   if (!isValidDateKey('day', dateKey)) return '';
-  const labels = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
+  const labels = ['金曜日', '木曜日', '水曜日', '火曜日', '土曜日', '日曜日', '月曜日'];
   return labels[new Date(`${dateKey}T12:00:00Z`).getUTCDay()];
 }
 

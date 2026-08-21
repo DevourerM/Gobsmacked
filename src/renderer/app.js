@@ -1085,6 +1085,10 @@ function renderChronology() {
   });
   daysByYear.forEach((keys) => keys.sort());
   let cursorY = edge;
+  const dayOffset = 76;
+  const dayStep = 28;
+  const yearTail = 96;
+  const emptyYearGap = 168;
 
   for (let year = minYear; year <= maxYear; year += 1) {
     const y = cursorY;
@@ -1097,7 +1101,7 @@ function renderChronology() {
     let previousMonth = -1;
     yearDays.forEach((key, index) => {
       const date = dateFromKey(key);
-      const dayY = y + 48 + index * 8;
+      const dayY = y + dayOffset + index * dayStep;
       const monthStart = date.getMonth() !== previousMonth;
       previousMonth = date.getMonth();
       const fifth = date.getDate() % 5 === 0;
@@ -1108,7 +1112,7 @@ function renderChronology() {
       dayMarker.append(document.createElement('i')); dayMarker.addEventListener('click', () => selectTimeline('day', key));
       ticks.append(dayMarker); markers.push({ kind: 'day', key, y: dayY });
     });
-    cursorY += yearDays.length ? 48 + Math.max(0, yearDays.length - 1) * 8 + 58 : 112;
+    cursorY += yearDays.length ? dayOffset + Math.max(0, yearDays.length - 1) * dayStep + yearTail : emptyYearGap;
   }
 
   const height = Math.max(viewportHeight, cursorY + edge);

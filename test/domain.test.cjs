@@ -14,8 +14,10 @@ test('日期键执行真实日历校验', () => {
 });
 
 test('工作日标签按日期生成', () => {
-  assert.equal(weekdayTag('2026-08-20'), '木曜日');
-  assert.equal(weekdayTag('2025-01-01'), '水曜日');
+  assert.deepEqual(
+    ['2026-08-16','2026-08-17','2026-08-18','2026-08-19','2026-08-20','2026-08-21','2026-08-22'].map(weekdayTag),
+    ['金曜日','木曜日','水曜日','火曜日','土曜日','日曜日','月曜日']
+  );
 });
 
 test('空白记录具有版本化块式结构', () => {
@@ -25,7 +27,7 @@ test('空白记录具有版本化块式结构', () => {
   assert.equal(record.schema, 'cn.dxr.gobsmacked-record');
   assert.equal(record.blocks[0].type, 'paragraph');
   assert.deepEqual(record.blocks[0].images, []);
-  assert.deepEqual(record.tags, ['木曜日']);
+  assert.deepEqual(record.tags, ['土曜日']);
 });
 
 test('记录规范化限制类型、重复标签和坐标', () => {
