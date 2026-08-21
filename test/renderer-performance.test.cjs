@@ -61,3 +61,12 @@ test('图片拖动只更新合成层，不触发页面布局滚动', () => {
   assert.match(styles, /\.image-viewer-transform[^}]*will-change: transform/);
   assert.doesNotMatch(renderer, /imageStage\.addEventListener\('pointermove'[\s\S]{0,300}(?:scrollTop|style\.left|style\.top)/);
 });
+
+test('记录与历史以附件条目导出文件且不创建预览', () => {
+  assert.match(markup, /id="record-attachments"/);
+  assert.match(markup, /id="add-attachment"/);
+  assert.match(renderer, /api\.importAttachments\(\)/);
+  assert.match(renderer, /api\.exportAttachment\(attachment\)/);
+  assert.match(renderer, /attachmentShelf\(record\.attachments\)/);
+  assert.doesNotMatch(renderer, /createObjectURL\([^)]*attachment/);
+});

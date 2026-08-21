@@ -103,6 +103,7 @@ async function initializeVault() {
     fsp.mkdir(path.join(vaultRoot, 'records', 'day'), { recursive: true }),
     fsp.mkdir(path.join(vaultRoot, 'records', 'year'), { recursive: true }),
     fsp.mkdir(path.join(vaultRoot, 'assets'), { recursive: true }),
+    fsp.mkdir(path.join(vaultRoot, 'attachments'), { recursive: true }),
     fsp.mkdir(path.join(vaultRoot, 'metadata'), { recursive: true }),
     fsp.mkdir(libraryRoot, { recursive: true }),
     fsp.mkdir(libraryTempRoot, { recursive: true })
@@ -330,6 +331,52 @@ async function extractLibraryEntry(manifest, entry, destination) {
   }
 }
 
+function archiveRecordTarget(virtualPath) {
+  const value = String(virtualPath || '').replaceAll('\\', '/');
+  const compact = value.match(/(?:^|\D)((?:19|20|21)\d{2})(0[1-9]|1[0-2])([0-2]\d|3[01])(?:\D|$)/);
+  const separated = value.match(/((?:19|20|21)\d{2})[年._/-]+(1[0-2]|0?[1-9])[月._/-]+(3[01]|[12]\d|0?[1-9])(?:日)?/);
+  const full = compact || separated;
+  if (full) {
+    const key = `${full[1]}-${String(Number(full[2])).padStart(2, '0')}-${String(Number(full[3])).padStart(2, '0')}`;
+    if (isValidDateKey('day', key)) return { kind: 'day', key };
+  }
+  const year = value.match(/(?:^|\/)((?:19|20|21)\d{2})(?:\/|$)/)?.[1];
+  return year ? { kind: 'year', key: year } : null;
+}
+
+async function linkLegacyAttachments() {
+  const manifest = await getLibraryManifest();
+  const candidates = [];
+  for (const entry of [...manifest.entries].sort((a, b) => a.path.split('/').length - b.path.split('/').length)) {
+    const target = archiveRecordTarget(entry.path);
+    if (!target) continue;
+    const targetId = `${target.kind}:${target.key}`;
+    if (candidates.some((item) => item.targetId === targetId && entry.path.startsWith(`${item.entry.path}/`))) continue;
+    candidates.push({ entry, target, targetId });
+  }
+  let linked = 0; const changed = new Map();
+  for (const { entry, target } of candidates) {
+    const id = `${target.kind}:${target.key}`;
+    let record = changed.get(id);
+    if (!record) {
+      const stored = await jsonRead(recordPath(target.kind, target.key), null);
+      record = stored ? normalizeRecord(stored, target.kind, target.key) : emptyRecord(target.kind, target.key);
+      changed.set(id, record);
+    }
+    if (record.attachments.some((item) => item.source === 'library' && item.path === entry.path)) continue;
+    const size = entry.type === 'file' ? Number(entry.size || 0) : manifest.entries
+      .filter((item) => item.type === 'file' && item.path.startsWith(`${entry.path}/`))
+      .reduce((sum, item) => sum + Number(item.size || 0), 0);
+    record.attachments.push({ id: uid('attachment'), source: 'library', path: entry.path, fileName: path.posix.basename(entry.path), type: entry.type, size });
+    linked += 1;
+  }
+  for (const record of changed.values()) {
+    if (!record.attachments.some((item) => item.source === 'library')) continue;
+    await atomicJson(recordPath(record.kind, record.date), normalizeRecord(record, record.kind, record.date));
+  }
+  return { linked, records: [...changed.values()].filter((record) => record.attachments.some((item) => item.source === 'library')).length };
+}
+
 async function currentDeviceTrust(config) {
   const device = await jsonRead(trustedDeviceFile, null);
   return { device, trusted: isDeviceTrusted(config, device) };
@@ -553,6 +600,46 @@ function registerIpc() {
     await fsp.writeFile(path.join(vaultRoot, 'assets', storedName), Buffer.from(bytes));
     return { assetId: storedName, fileName: `recording-${new Date().toISOString().replace(/[:.]/g, '-')}${extension}` };
   });
+  ipcMain.handle('attachment:import', async () => {
+    requireMain();
+    const choice = await dialog.showMessageBox(mainWindow, { title: '添加附件', message: '选择附件类型', buttons: ['文件', '文件夹', '取消'], cancelId: 2, defaultId: 0 });
+    if (choice.response === 2) return null;
+    const directory = choice.response === 1;
+    const picked = await dialog.showOpenDialog(mainWindow, { title: directory ? '选择附件文件夹' : '选择附件', properties: directory ? ['openDirectory'] : ['openFile', 'multiSelections'] });
+    if (picked.canceled || !picked.filePaths.length) return null;
+    const imported = [];
+    for (const source of picked.filePaths) {
+      assertExternalTransferPath(source);
+      if (pathInside(userDataRoot, source) || pathInside(source, userDataRoot)) throw new Error('不能从系统数据目录导入附件');
+      const stat = await fsp.stat(source); const assetId = uid('attachment'); const root = path.join(vaultRoot, 'attachments', assetId);
+      const fileName = path.basename(source); const destination = path.join(root, fileName);
+      await fsp.mkdir(root, { recursive: true });
+      try { await fsp.cp(source, destination, { recursive: stat.isDirectory(), errorOnExist: true, force: false }); }
+      catch (error) { await fsp.rm(root, { recursive: true, force: true }); throw error; }
+      const size = stat.isFile() ? stat.size : (await inventoryTree(source)).filter((item) => item.type === 'file').reduce((sum, item) => sum + item.size, 0);
+      imported.push({ id: uid('attachment'), source: 'asset', assetId, fileName, type: stat.isDirectory() ? 'directory' : 'file', size });
+    }
+    return imported;
+  });
+  ipcMain.handle('attachment:export', async (_event, attachment) => {
+    requireMain();
+    const picked = await dialog.showOpenDialog(mainWindow, { title: '选择附件导出位置', properties: ['openDirectory', 'createDirectory'] });
+    if (picked.canceled || !picked.filePaths[0]) return null;
+    const destination = path.resolve(picked.filePaths[0]); assertExportDestination(destination);
+    if (attachment?.source === 'library') {
+      requireInner(); const manifest = await getLibraryManifest(); const entry = libraryEntry(manifest, attachment.path);
+      if (!entry) throw new Error('附件在资料库中不存在');
+      const target = await uniqueChildPath(destination, path.basename(entry.path)); await extractLibraryEntry(manifest, entry, target);
+      return { path: target };
+    }
+    const assetId = String(attachment?.assetId || '');
+    if (!/^attachment_[a-z0-9_]+$/i.test(assetId)) throw new Error('附件引用无效');
+    const source = path.join(vaultRoot, 'attachments', assetId, path.basename(String(attachment.fileName || '')));
+    if (!pathInside(path.join(vaultRoot, 'attachments', assetId), source) || !fs.existsSync(source)) throw new Error('附件不存在');
+    const target = await uniqueChildPath(destination, path.basename(source)); await fsp.cp(source, target, { recursive: true, errorOnExist: true, force: false });
+    return { path: target };
+  });
+  ipcMain.handle('attachment:linkLegacy', async () => { requireInner(); return linkLegacyAttachments(); });
 
   ipcMain.handle('earth:outlines', async () => { requireMain(); return earthOutlines; });
   ipcMain.handle('earth:geocode', async (_event, rawQuery) => {

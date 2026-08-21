@@ -7,7 +7,7 @@ const messages = {
     identity: '识别名称', secret: '密钥', enter: '进入', archiveSubtitle: '个人记录', trustDevice: '信任', trustedDevice: '已信任', trustEnabled: '本机已加入信任名单', trustDisabled: '本机已移出信任名单', trustFailed: '信任设置失败：{message}', trustedEnterFailed: '信任已失效，请输入密钥',
     todayMode: '今日记录', yearMode: '年度总结', saved: '已保存', pastArchive: '历史记录',
     calendar: '日历',
-    addTag: '＋ 添加标签', addContent: '添加内容', textBlock: '¶ 文本', image: '▧ 图片', recordAudio: '● 录音', environment: '环境', currentLocation: '当前位置', clear: '清除',
+    addTag: '＋ 添加标签', addContent: '添加内容', textBlock: '¶ 文本', image: '▧ 图片', recordAudio: '● 录音', attachment: '⌕ 附件', attachments: '附件', exportAttachment: '导出附件', environment: '环境', currentLocation: '当前位置', clear: '清除',
     noLocation: '尚未记录地点', setLocation: '设置地点', todaySummary: '今日概览', textCount: '文字数', mediaCount: '媒体数',
     protectedArchive: '独立保护', verifyPast: '验证访问', verify: '验证', setupHistoryAccess: '设置历史密钥', saveAndEnter: '保存并进入', historySecret: '历史密钥', archive: '历史', archiveReview: '历史记录', importLegacy: '导入旧记录', exportContent: '导出内容', exportMigration: '迁移备份', returnPresent: '返回今天', recordArchive: '记录', fileArchive: '资料',
     chronology: '时间轴', yearScale: '年份', dayScale: '月份 / 记录日', dragChronology: '拖动刻度', filterFiles: '筛选当前目录', importFiles: '导入文件', importFolder: '导入文件夹', openFile: '打开', extractFile: '提取', libraryEmpty: '当前目录为空', sealedArchive: '加密档案', voiceRecord: '录音', recording: '正在录音', recordingActive: '正在录音', stopRecording: '停止', insertRecording: '插入标签',
@@ -24,7 +24,7 @@ const messages = {
     identity: 'Identity', secret: 'Passkey', enter: 'Enter', archiveSubtitle: 'LIFE ARCHIVE', trustDevice: 'Trust', trustedDevice: 'Trusted', trustEnabled: 'This device is now trusted', trustDisabled: 'This device is no longer trusted', trustFailed: 'Trust setting failed: {message}', trustedEnterFailed: 'Trust expired; enter your passkey',
     todayMode: 'Today', yearMode: 'Year Review', saved: 'Saved', pastArchive: 'Archive',
     calendar: 'CALENDAR',
-    addTag: '+ Add tag', addContent: 'Add content', textBlock: '¶ Text', image: '▧ Image', recordAudio: '● Record', environment: 'ENVIRONMENT', currentLocation: 'Current Place', clear: 'Clear',
+    addTag: '+ Add tag', addContent: 'Add content', textBlock: '¶ Text', image: '▧ Image', recordAudio: '● Record', attachment: '⌕ Attach', attachments: 'Attachments', exportAttachment: 'Export attachment', environment: 'ENVIRONMENT', currentLocation: 'Current Place', clear: 'Clear',
     noLocation: 'No place recorded', setLocation: 'Set Place', todaySummary: 'TODAY', textCount: 'Characters', mediaCount: 'Media',
     protectedArchive: 'SEPARATE ACCESS', verifyPast: 'Verify Access', verify: 'Verify', setupHistoryAccess: 'Set History Passkey', saveAndEnter: 'Save and Enter', historySecret: 'History passkey', archive: 'ARCHIVE', archiveReview: 'Past Records', importLegacy: 'Import Records', exportContent: 'Export Content', exportMigration: 'Migration Copy', returnPresent: 'Return to Present', recordArchive: 'Records', fileArchive: 'Files',
     chronology: 'TIMELINE', yearScale: 'Years', dayScale: 'Months / recorded days', dragChronology: 'Drag the scales', filterFiles: 'Filter this folder', importFiles: 'Import Files', importFolder: 'Import Folder', openFile: 'Open', extractFile: 'Extract', libraryEmpty: 'This folder is empty', sealedArchive: 'Encrypted Archive', voiceRecord: 'RECORDING', recording: 'Recording', recordingActive: 'Recording', stopRecording: 'Stop', insertRecording: 'Insert Tag',
@@ -82,7 +82,8 @@ const state = {
   innerConfigured: false,
   deviceTrusted: false,
   skyRevealed: false,
-  exportBusy: false
+  exportBusy: false,
+  legacyAttachmentsChecked: false
 };
 
 function t(key, variables = {}) {
@@ -625,9 +626,40 @@ function renderRecord() {
   if (!state.record) return;
   $('#record-title').value = state.record.title;
   renderTags();
+  renderRecordAttachments();
   renderBlocks();
   renderLocation();
   updateStats();
+}
+
+async function exportRecordAttachment(attachment) {
+  try {
+    const result = await api.exportAttachment(attachment);
+    if (result) toast(state.language === 'zh' ? `已导出到 ${result.path}` : `Exported to ${result.path}`);
+  } catch (error) { toast(error.message); }
+}
+
+function attachmentShelf(attachments, editable = false) {
+  const shelf = document.createElement('section'); shelf.className = 'attachment-shelf';
+  const heading = document.createElement('span'); heading.className = 'attachment-heading'; heading.textContent = `${t('attachments')} ${attachments.length}`;
+  const list = document.createElement('div'); list.className = 'attachment-list'; shelf.append(heading, list);
+  attachments.forEach((attachment, index) => {
+    const item = document.createElement('div'); item.className = 'attachment-item';
+    const exportButton = document.createElement('button'); exportButton.type = 'button'; exportButton.className = 'attachment-export'; exportButton.title = t('exportAttachment');
+    const icon = document.createElement('i'); icon.className = attachment.type === 'directory' ? 'attachment-folder' : 'attachment-file';
+    const label = document.createElement('span'); const name = document.createElement('strong'); name.textContent = attachment.fileName;
+    const detail = document.createElement('small'); detail.textContent = `${attachment.type === 'directory' ? (state.language === 'zh' ? '文件夹' : 'Folder') : (state.language === 'zh' ? '文件' : 'File')} · ${formatBytes(attachment.size)}`;
+    label.append(name, detail); exportButton.append(icon, label); exportButton.addEventListener('click', () => exportRecordAttachment(attachment)); item.append(exportButton);
+    if (editable) { const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'attachment-remove'; remove.textContent = '×'; remove.ariaLabel = t('delete'); remove.addEventListener('click', () => { state.record.attachments.splice(index, 1); renderRecordAttachments(); markDirty(); }); item.append(remove); }
+    list.append(item);
+  });
+  return shelf;
+}
+
+function renderRecordAttachments() {
+  const target = $('#record-attachments'); const attachments = state.record?.attachments || [];
+  target.replaceChildren(); target.classList.toggle('hidden', !attachments.length);
+  if (attachments.length) target.replaceWith(Object.assign(attachmentShelf(attachments, true), { id: 'record-attachments' }));
 }
 
 function renderTags() {
@@ -711,6 +743,17 @@ function addParagraph() {
   state.record.blocks.push({ id: cryptoId('paragraph'), type: 'paragraph', text: '', voices: [], images: [] });
   renderBlocks(); markDirty();
   requestAnimationFrame(() => { const inputs = $$('.paragraph-editor'); inputs.at(-1)?.focus(); $('#editor-blocks').scrollTop = $('#editor-blocks').scrollHeight; });
+}
+
+async function addAttachments() {
+  try {
+    const imported = await api.importAttachments();
+    if (!imported?.length || !state.record) return;
+    state.record.attachments ||= [];
+    state.record.attachments.push(...imported);
+    renderRecordAttachments(); markDirty();
+    toast(state.language === 'zh' ? `已添加 ${imported.length} 个附件` : `${imported.length} attachment(s) added`);
+  } catch (error) { toast(`${state.language === 'zh' ? '附件导入失败' : 'Attachment import failed'}: ${error.message}`); }
 }
 
 async function beginImageInsert() {
@@ -1519,7 +1562,7 @@ async function loadHistoryRecord(kind, key) {
   try {
     const record = await api.getRecord(kind, key);
     if (serial !== historyLoadSerial) return;
-    const hasContent = record.blocks.some((block) => block.type !== 'paragraph' || block.text.trim() || block.voices?.length || block.images?.length);
+    const hasContent = Boolean(record.attachments?.length) || record.blocks.some((block) => block.type !== 'paragraph' || block.text.trim() || block.voices?.length || block.images?.length);
     preview.replaceChildren();
     preview.classList.toggle('is-empty', !hasContent);
     const heading = document.createElement('header'); heading.className = 'history-record-heading';
@@ -1529,6 +1572,7 @@ async function loadHistoryRecord(kind, key) {
     const body = document.createElement('div'); body.className = 'history-record-body';
     preview.append(heading, body);
     if (!hasContent) { const empty = document.createElement('div'); empty.className = 'history-empty'; empty.innerHTML = `<p>${t('historyEmpty')}</p>`; body.append(empty); return; }
+    if (record.attachments?.length) body.append(attachmentShelf(record.attachments));
     record.blocks.forEach((block) => {
       if (block.type === 'paragraph') { const text = document.createElement('div'); text.className = 'preview-text'; renderInlineMedia(text, block); body.append(text); }
       if (block.type === 'image') body.append(createImageToken({ ...block, label: imageDisplayLabel(block) }, 'preview-image-token'));
@@ -1627,7 +1671,12 @@ function showHistory() {
   hideModal('history-gate'); document.body.classList.add('history-open'); $('#history').classList.remove('hidden'); $('#history').setAttribute('aria-hidden','false');
   dispatchEvent(new Event('resize'));
   setArchiveMode('records');
-  configureTimeline().catch((error) => toast(t('historyReadFailed', { message: error.message })));
+  configureTimeline().then(async () => {
+    if (state.legacyAttachmentsChecked) return;
+    state.legacyAttachmentsChecked = true;
+    const result = await api.linkLegacyAttachments();
+    if (result.linked) { toast(state.language === 'zh' ? `已关联 ${result.linked} 项旧附件` : `${result.linked} archived attachment(s) linked`); await configureTimeline(); }
+  }).catch((error) => toast(t('historyReadFailed', { message: error.message })));
 }
 function hideHistory() {
   if (state.exportBusy) { toast(state.language === 'zh' ? '导出进行中' : 'Export in progress'); return; }
@@ -1705,6 +1754,7 @@ function bindEvents() {
   $('#record-title').addEventListener('input', (event) => { state.record.title = event.target.value; markDirty(); });
   $('#tag-form').addEventListener('submit', (event) => { event.preventDefault(); const input = $('#tag-input'); const value = input.value.trim(); if (value && !state.record.tags.includes(value) && state.record.tags.length < 30) { state.record.tags.push(value); input.value = ''; renderTags(); markDirty(); } });
   $('#add-paragraph').addEventListener('click', addParagraph);
+  $('#add-attachment').addEventListener('click', addAttachments);
   ['#add-image','#add-audio'].forEach((selector) => $(selector).addEventListener('pointerdown', captureActiveParagraphCaret));
   $('#add-image').addEventListener('click', beginImageInsert); $('#add-audio').addEventListener('click', startRecording);
   $('#image-label-popover').addEventListener('submit', insertImageReference);

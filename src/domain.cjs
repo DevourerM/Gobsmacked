@@ -43,6 +43,7 @@ function emptyRecord(kind, dateKey) {
     title: defaultTitle(kind, dateKey),
     tags: kind === 'day' ? [weekdayTag(dateKey)] : ['年度总结'],
     location: null,
+    attachments: [],
     blocks: [{ id: uid('paragraph'), type: 'paragraph', text: '', voices: [], images: [] }],
     createdAt: now,
     updatedAt: now
@@ -91,6 +92,15 @@ function normalizeRecord(input, expectedKind, expectedDate) {
 
   const tags = [...new Set((Array.isArray(input?.tags) ? input.tags : base.tags)
     .map((tag) => String(tag).trim().slice(0, 40)).filter(Boolean))].slice(0, 30);
+  const attachments = (Array.isArray(input?.attachments) ? input.attachments : []).slice(0, 200).map((item) => ({
+    id: String(item?.id || uid('attachment')).slice(0, 100),
+    source: item?.source === 'library' ? 'library' : 'asset',
+    assetId: String(item?.assetId || '').slice(0, 200),
+    path: String(item?.path || '').slice(0, 1000),
+    fileName: String(item?.fileName || '').trim().slice(0, 300),
+    type: item?.type === 'directory' ? 'directory' : 'file',
+    size: Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Number(item?.size) || 0))
+  })).filter((item) => item.fileName && (item.source === 'library' ? item.path : item.assetId));
   let location = null;
   if (input?.location && String(input.location.name || '').trim()) {
     location = { name: String(input.location.name).trim().slice(0, 100) };
@@ -105,6 +115,7 @@ function normalizeRecord(input, expectedKind, expectedDate) {
     title: String(input?.title || base.title).trim().slice(0, 200),
     tags,
     location,
+    attachments,
     blocks: blocks.length ? blocks : base.blocks,
     updatedAt: new Date().toISOString()
   };

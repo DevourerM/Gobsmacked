@@ -27,7 +27,19 @@ test('空白记录具有版本化块式结构', () => {
   assert.equal(record.schema, 'cn.dxr.gobsmacked-record');
   assert.equal(record.blocks[0].type, 'paragraph');
   assert.deepEqual(record.blocks[0].images, []);
+  assert.deepEqual(record.attachments, []);
   assert.deepEqual(record.tags, ['土曜日']);
+});
+
+test('记录附件保留文件与加密资料库引用', () => {
+  const record = normalizeRecord({ attachments: [
+    { id: 'a1', source: 'asset', assetId: 'attachment_1', fileName: '报告.pdf', type: 'file', size: 1200 },
+    { id: 'a2', source: 'library', path: '2021/8.17/附件', fileName: '附件', type: 'directory', size: 4096 },
+    { id: 'bad', fileName: '无引用' }
+  ] }, 'day', '2021-08-17');
+  assert.equal(record.attachments.length, 2);
+  assert.equal(record.attachments[1].source, 'library');
+  assert.equal(record.attachments[1].type, 'directory');
 });
 
 test('记录规范化限制类型、重复标签和坐标', () => {
